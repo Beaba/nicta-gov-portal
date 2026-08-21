@@ -492,3 +492,40 @@ departures.
   headline text on mobile widths (the same class of stacking/sizing bug as `#A19`'s first pass,
   different cause — a percentage-based height that stayed proportionally tall on narrow viewports).
   Fixed with fixed pixel heights below `lg` instead of a percentage.
+
+## A25 — Department names corrected again, one day after `#A21` (2026-08-22)
+
+The client sent a "controlled correction" explicitly scoped to organisational-area names only
+("do not reconsider, redesign or otherwise modify the previous specification... the only correction
+is the official list") — superseding `#A21`'s names, which turned out not to be final:
+
+| Code                     | `#A21` name (2026-08-21)                  | Corrected name (2026-08-22)                             |
+| ------------------------ | ----------------------------------------- | ------------------------------------------------------- |
+| `OCEO`                   | Office of the CEO                         | _unchanged_                                             |
+| `ECON_LICENSING`         | Economics and **Licencing**               | Economics and **Licensing** (back to standard spelling) |
+| `DIGITAL_TRANSFORMATION` | Digital Transformation **Department**     | Digital Transformation (no suffix)                      |
+| `ENGINEERING`            | Engineering **Department**                | Engineering (no suffix)                                 |
+| `COMPLIANCE`             | **Compliance and Enforcement** Department | **Enforcement and Compliance** (reordered, no suffix)   |
+| `CORPORATE_SERVICES`     | Corporate Services **Department**         | Corporate Services (no suffix)                          |
+
+Codes unchanged throughout — renaming `name` is always safe (`#A4`). Applied in exactly one place,
+`src/lib/config/departments.ts`, then `db:seed` (idempotent) propagated it to the live DB — every
+other touchpoint the client listed (Director/CEO/Corporate Secretariat dashboards, submission
+forms/tables, filters, notifications, audit records, and the SharePoint folder **and file name**
+derivation from `#A22`) already reads `Department.name` live rather than hardcoding it, so nothing
+else needed a code change. Verified directly: queried the live DB for all six names and the real
+roster's department assignments (unchanged — only the string changed, not who belongs where), and
+created-then-deleted one real submission to confirm the folder path and file name both picked up
+`Economics_and_Licensing` with no further code changes. No automated tests exist yet to update
+(`tests/unit/**` is empty — `#A23`).
+
+- **Not implemented — flagged instead of guessed at**: the same message included three dashboard
+  screenshots (CEO, Corporate Secretariat, Director) showing a materially different app shell than
+  what exists — a dark teal left sidebar nav instead of the current top `AppHeader`, a warm-cream
+  content background instead of `bg-nicta-neutral-50`, and specific per-role dashboard card/table
+  layouts that don't exist yet. The message's own text says "do not redesign... every other
+  requirement remains unchanged" and separately claims a "supplied working prototype and source
+  files" as the reference — but only three static images reached this session, no source files or
+  URL. Building that shell would be a large, separate change directly contradicting the "only
+  correction is names" framing in the same message, so it was left undone and raised with the
+  client rather than either silently skipped or silently attempted from images alone.
