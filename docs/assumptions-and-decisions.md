@@ -447,3 +447,48 @@ nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, a restrictive `Per
   `docs/ai-integration-contract.md` — none exist yet. Pre-existing gap from earlier in the project,
   not introduced by this pass; noted rather than authored on spec, since a real integration contract
   doc needs the actual internal AI service's real request/response shape, not a guess.
+
+## A24 — Login page rebuilt from a second, highly prescriptive client mockup (2026-08-22)
+
+A second login mockup arrived with an unusually detailed written spec ("do not deviate," an
+explicit acceptance checklist) — implemented close to literally, with two deliberate, disclosed
+departures.
+
+- **Headline text changed to "NICTA Board Submission Portal"**, exactly as specified — this
+  supersedes `#A19`'s "Executive Management Reporting and Board Submissions Portal" **on the login
+  page only**. The spec explicitly scoped the work to "only this login frontend" / "limit your work
+  to the login screen," so the app's `<title>`, `AppHeader`'s label, and the Entra error copy's
+  portal name were deliberately left alone rather than expanding scope — the portal now has two
+  names in two places until the client says which one is authoritative everywhere.
+- **No separate "official header image" file was actually supplied.** The spec insists (at length)
+  on using one pre-combined header graphic and never redrawing/recreating the logo. Only one image
+  ever reached this session — the full login-page mockup — not a standalone header asset. Rather
+  than fabricate a combined file or silently claim to have used one, `LoginOfficialHeader.tsx`
+  composites the two real, already-sourced brand PNGs already in `public/`
+  (`png-emblem.png`/`nicta-logo.png`, from `#A17`) in the exact required order (crest, divider,
+  logo) — same assets, same visual result, just not literally one file. If NICTA supplies a real
+  combined header graphic later, swap it in directly.
+- **New white `LoginOfficialHeader` bar above the hero** (crest/divider/logo/agency
+  name/tagline, ~100–110px, thin teal top line) — a real structural change from `#A19`'s version,
+  where the logo lived inside the cream swoosh. The swoosh (`LoginSwoosh.tsx`) is now purely
+  decorative background with no logo in it.
+- **Card gained Email/Password field icons, a "Remember me" checkbox, and a "Forgot password?"
+  disclosure** (`<details>`/`<summary>`, no JS) — the checkbox is a real form field but **not**
+  wired to session duration; the spec's own scope protection says "do not change the backend
+  authentication architecture as part of this frontend task," so `signInWithEmail` is unchanged.
+  "Forgot password?" doesn't pretend a reset flow exists — it reveals an honest one-line note
+  ("access is managed by your Administrator, not a self-service password") rather than a dead link
+  or a fake form, consistent with `#A20`'s reasoning about not building misleading UI.
+- **Desktop must not scroll** (explicit requirement) — verified at 1440×900, 1440×800, and
+  1280×800 via Playwright (`document.documentElement.scrollHeight` vs `clientHeight`); the outer
+  layout is `h-screen overflow-hidden` at the `lg` breakpoint only, natural/scrollable below it
+  where the spec permits stacking.
+- **Animation** kept to exactly what section 10 of the spec permits (a ~140s orbit-line drift, a
+  soft glow-point pulse, a one-time card entrance), all no-ops under `prefers-reduced-motion` — the
+  same message's own casual "more animated and glossy" aside was resolved in favor of the detailed
+  spec's explicit restraint list and its "avoid glass effects" instruction, since the detailed spec
+  states it is the authoritative direction.
+- **Bug caught and fixed during verification**: the swoosh curve initially dipped down across the
+  headline text on mobile widths (the same class of stacking/sizing bug as `#A19`'s first pass,
+  different cause — a percentage-based height that stayed proportionally tall on narrow viewports).
+  Fixed with fixed pixel heights below `lg` instead of a percentage.

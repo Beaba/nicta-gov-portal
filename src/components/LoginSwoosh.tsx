@@ -1,31 +1,20 @@
-import Image from 'next/image';
-
-// Cream wave panel across the top-left of the login hero, carrying the NICTA wordmark — matches
-// the client-supplied login mockup's layout. preserveAspectRatio="none" so the hand-drawn curve
-// fills its box predictably at any viewport width, at the cost of some stretch on extreme aspect
-// ratios (acceptable for a decorative shape).
+// Purely decorative cream curve sweeping in from the upper-left of the hero area — the NICTA
+// logo used to live inside this shape, but now lives in the dedicated white LoginOfficialHeader
+// bar above it instead, so this is background only. preserveAspectRatio="none" so the hand-drawn
+// curve fills its box predictably at any hero width, at the cost of some stretch on extreme
+// aspect ratios (acceptable for a decorative shape).
 export function LoginSwoosh() {
   return (
-    <div className="absolute inset-x-0 top-0 h-[220px] w-full sm:h-[300px]">
-      <svg
-        viewBox="0 0 1000 400"
-        preserveAspectRatio="xMinYMin slice"
-        className="absolute inset-0 h-full w-full"
-        aria-hidden="true"
-      >
-        <path
-          d="M0,280 C180,230 320,70 520,55 C600,48 630,150 710,115 C810,75 790,10 860,8 C900,5 950,2 1000,0 L1000,0 L0,0 Z"
-          fill="#F4EFE3"
-        />
-      </svg>
-      <div className="relative flex items-center gap-3 px-8 py-8 sm:px-12 sm:py-10">
-        <Image src="/nicta-logo.png" alt="NICTA official logo" width={56} height={40} />
-        <p className="text-sm font-semibold leading-tight text-nicta-teal-dark">
-          Inform Communicate
-          <br />
-          Transform
-        </p>
-      </div>
-    </div>
+    <svg
+      viewBox="0 0 1000 400"
+      preserveAspectRatio="xMinYMin slice"
+      className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[130px] w-full sm:h-[200px] lg:h-[46%] xl:h-[52%]"
+      aria-hidden="true"
+    >
+      <path
+        d="M0,220 C160,180 300,60 480,48 C560,42 590,130 660,100 C750,64 730,10 800,8 C880,4 940,2 1000,0 L1000,0 L0,0 Z"
+        fill="#F4EFE3"
+      />
+    </svg>
   );
 }
