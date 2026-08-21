@@ -1,0 +1,23 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nicta
+      POSTGRES_PASSWORD: nicta_dev_password
+      POSTGRES_DB: nicta_portal
+    ports:
+      # Host port 5433, not 5432: this machine already runs an unrelated project's Postgres
+      # container bound to 5432 (see docs/known-limitations.md). Container-internal port is
+      # unaffected — DATABASE_URL in .env.example points at 5433 to match.
+      - '5433:5432'
+    volumes:
+      - nicta_portal_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U nicta -d nicta_portal']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  nicta_portal_db_data:

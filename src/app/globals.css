@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-nicta-neutral-50 text-nicta-neutral-900;
+}
+
+@layer components {
+  .input {
+    @apply block w-full rounded-md border border-nicta-neutral-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-nicta-teal focus:outline-none focus:ring-1 focus:ring-nicta-teal;
+  }
+}
