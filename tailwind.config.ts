@@ -30,6 +30,9 @@ const config: Config = {
             700: '#496B70', // muted/secondary text (inactive tab, subtitles)
             900: '#153C44',
           },
+          cream: {
+            DEFAULT: '#FBF3E7', // warm dashboard content-area background (#A26) — distinct from neutral-50, which stays the plain-page default
+          },
           sand: {
             DEFAULT: '#C9AF7F', // warm accent for the login hero panel — original tone, not sampled from any client asset
             dark: '#A9905F',

@@ -529,3 +529,62 @@ created-then-deleted one real submission to confirm the folder path and file nam
   URL. Building that shell would be a large, separate change directly contradicting the "only
   correction is names" framing in the same message, so it was left undone and raised with the
   client rather than either silently skipped or silently attempted from images alone.
+
+## A26 — Dashboard shell rebuilt (sidebar + 3 role dashboards) from client mockups (2026-08-22)
+
+The client confirmed (after `#A25` raised it) that the dashboard screenshots should be built for
+real: a dark-teal left sidebar + white top header replacing the old top-nav-only `AppHeader`, and
+full rebuilds of the CEO/Corporate Secretariat/Director landing pages. Built as one foundational
+pass plus 4 parallel agents, per the client's own "break up the agents" request.
+
+- **Foundation (built directly, not delegated)**: `PortalShell`/`PortalHeader`/`PortalSidebar`
+  (new shared shell), `DashboardStatCard`/`DashboardMeetingBar` (shared dashboard widgets),
+  `getCurrentSmcMeetingWithDeadline()` (new export, `meetings.ts`), and `department: true` added to
+  `listAllSubmissions`/`listReviewQueue`/`listMySubmissions`'s existing queries so every dashboard
+  agent had department data without touching `submissions.ts`/`review.ts` themselves. Verified
+  live end-to-end on `board-papers/page.tsx` (migrated by hand as the reference example) before
+  handing the pattern to any agent.
+- **Sidebar is deliberately 2 items regardless of role** ("SMC Submissions", "Board Papers"),
+  matching the reference exactly — every role's actual primary page (Director -> `/submissions`,
+  Corporate Secretary -> `/review-queue`, CEO -> `/executive-dashboard`, System Admin -> `/admin`)
+  sits behind "SMC Submissions" via `ROLE_LANDING_PAGE`/`PRIORITY` (the same lookup the post-login
+  redirect already uses), rather than a third hardcoded mapping. Administration has no standalone
+  nav item, matching the reference — it's reachable from the Corporate Secretariat dashboard's own
+  "Set SMC Deadline"/"Manage Approved Templates" buttons instead (both plain links to the existing
+  `/admin` and `/admin/templates` pages — no new admin UI was built).
+- **4 parallel agents**, file-scoped to avoid collisions: mechanical `AppHeader` -> `PortalShell`
+  migration across 8 otherwise-unchanged pages; CEO dashboard (`executive-dashboard/page.tsx`);
+  Corporate Secretariat dashboard (`review-queue/page.tsx`), including a `?selected={id}`
+  query-param master-detail panel (same route, no sub-navigation) reusing the 3 existing
+  `review-queue/[id]/actions.ts` server actions unchanged, just relabeled ("Accept for SMC" /
+  "Vetted for Board" — same `noteSubmissionAction`/`endorseForBoardAction` calls as before); Director
+  dashboard (`submissions/page.tsx`). All four verified their own work live via Playwright against
+  real seed data before reporting back, and all four reports were independently re-verified (code
+  read, not just the agent's summary) before integrating.
+- **Bug found and fixed during integration**: the Corporate Secretariat panel's 3 actions now share
+  one comment `<textarea>` (the reference shows one compact panel, not three separate forms), but
+  only `returnSubmissionForCorrection` requires a non-empty comment
+  (`src/lib/submissions/review.ts`) — the old separate-forms page enforced that with a plain
+  `required` attribute on its own textarea, which isn't possible on a field shared with two actions
+  that don't need a comment. An empty-comment Return would have thrown a raw
+  `SubmissionValidationError` past the UI as an unstyled Next.js error overlay. Fixed with a small
+  client component, `ReviewActionForm.tsx`, that intercepts only the Return button's click to check
+  the comment client-side; the other two buttons submit normally.
+- **`AppHeader.tsx` deleted** — `ComingSoonPage.tsx` (backs the still-unbuilt `/my-workplan`,
+  `/department-dashboard`, `/smc/dashboard`, `/board/dashboard` future-module placeholders) was its
+  last caller; migrated onto `PortalShell` too so the whole authenticated app now shares one shell
+  consistently, rather than leaving 4 routes on a different, older header/nav.
+- **Mistake made and disclosed, not hidden**: while manually verifying the `ReviewActionForm` fix
+  against live seed data (submission `SMC-26-009`), a cleanup script meant to revert the one test
+  transition it created used a `WHERE entityId = ... AND action = 'SUBMISSION_TRANSITION'` filter
+  that was too broad — it deleted 4 matching `AuditEvent` rows, not the 1 the test had actually
+  created, because this submission (pre-existing, not seed-script-generated — its title has a human
+  typo, "Baord Paper") already had its own prior transition-audit history from whenever it was
+  originally created through the real app flow. The submission's functional state (`workflowStatus`,
+  the `SubmissionReview`/`WorkflowTransition`/`Notification` rows the test itself created) was fully
+  and correctly reverted; the 3 extra deleted `AuditEvent` rows were **not** recoverable (no soft-
+  delete in this schema) and were **not** reconstructed with fabricated timestamps/content. Net
+  effect: `SMC-26-009`'s audit-history view is missing 3 historical entries; nothing about its actual
+  submission data or current behavior is wrong. A full `prisma migrate reset` would restore pristine
+  seed data but risks discarding anything the client did in the app interactively, so it was not run
+  without asking first.

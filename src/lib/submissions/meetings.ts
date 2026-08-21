@@ -14,3 +14,16 @@ export async function getCurrentSmcMeeting(): Promise<Meeting | null> {
     orderBy: { meetingDate: 'asc' },
   });
 }
+
+/** Same "current meeting" as above, plus its Deadline row — for the "Next SMC meeting / Submissions
+ * close" bar shared by all three dashboards (Director/Corporate Secretariat/CEO). A meeting can
+ * exist without a Deadline yet (admin hasn't set one) — callers must handle a null `deadline`. */
+export async function getCurrentSmcMeetingWithDeadline(): Promise<
+  (Meeting & { deadline: { normalCloseAt: Date } | null }) | null
+> {
+  return prisma.meeting.findFirst({
+    where: { meetingType: 'SMC', status: { in: ['SCHEDULED', 'AGENDA_PREPARED'] } },
+    orderBy: { meetingDate: 'asc' },
+    include: { deadline: { select: { normalCloseAt: true } } },
+  });
+}

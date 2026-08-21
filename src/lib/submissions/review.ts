@@ -405,7 +405,10 @@ export async function listActionItems(submissionId: string) {
 
 /** CEO/Corporate Secretary org-wide read visibility ("CEO reviews and reads") — unscoped by
  * department or ownership, unlike listMySubmissions. */
-export async function listAllSubmissions(actingUser: AuthenticatedUser): Promise<Submission[]> {
+export async function listAllSubmissions(actingUser: AuthenticatedUser) {
   requireAnyRole(actingUser, OVERSIGHT_ROLES);
-  return prisma.submission.findMany({ orderBy: { createdAt: 'desc' } });
+  return prisma.submission.findMany({
+    include: { department: true },
+    orderBy: { createdAt: 'desc' },
+  });
 }

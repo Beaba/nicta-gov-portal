@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db/prisma';
 import { getEnv } from '@/lib/config/env';
-import { AppHeader } from '@/components/AppHeader';
+import { PortalShell } from '@/components/PortalShell';
 import { addDepartmentAction, addMeetingAction, addPaperTypeAction } from '@/app/admin/actions';
 
 export default async function AdminPage() {
@@ -29,9 +29,8 @@ export default async function AdminPage() {
   ]);
 
   return (
-    <>
-      <AppHeader user={user} active="admin" />
-      <main className="mx-auto max-w-4xl space-y-10 px-4 py-8">
+    <PortalShell user={user} active="admin">
+      <div className="space-y-10">
         <div>
           <h1 className="text-lg font-semibold text-nicta-teal-dark">Administration</h1>
           <p className="mt-1 text-sm text-nicta-neutral-700">
@@ -151,8 +150,8 @@ export default async function AdminPage() {
             </tbody>
           </table>
         </Section>
-      </main>
-    </>
+      </div>
+    </PortalShell>
   );
 }
 

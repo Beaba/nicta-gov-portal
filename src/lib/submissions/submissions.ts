@@ -458,17 +458,19 @@ export async function getSubmissionForUser(
   return submission;
 }
 
-export async function listMySubmissions(actingUser: AuthenticatedUser): Promise<Submission[]> {
+export async function listMySubmissions(actingUser: AuthenticatedUser) {
   return prisma.submission.findMany({
     where: { createdById: actingUser.id },
+    include: { department: true },
     orderBy: { createdAt: 'desc' },
   });
 }
 
-export async function listReviewQueue(actingUser: AuthenticatedUser): Promise<Submission[]> {
+export async function listReviewQueue(actingUser: AuthenticatedUser) {
   requireAnyRole(actingUser, ['REVIEWER_SECRETARIAT', 'SYSTEM_ADMIN']);
   return prisma.submission.findMany({
     where: { workflowStatus: 'SECRETARIAT_REVIEW' },
+    include: { department: true },
     orderBy: { submittedAt: 'asc' },
   });
 }
