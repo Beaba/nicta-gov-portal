@@ -30,6 +30,7 @@ export const SEED_ROLES = [
   { code: 'SMC_SECRETARIAT', name: 'OCEO / SMC Secretariat' },
   { code: 'SMC_MEMBER', name: 'SMC Member' },
   { code: 'BOARD_SECRETARIAT', name: 'Board Secretariat' },
+  { code: 'BOARD_MEMBER', name: 'Board Member' },
   {
     code: 'EXECUTIVE_VIEWER',
     name: 'CEO / Executive Viewer',
@@ -52,6 +53,7 @@ export const ROLE_LANDING_PAGE: Record<RoleCode, string> = {
   SMC_SECRETARIAT: '/smc/dashboard',
   SMC_MEMBER: '/smc/dashboard',
   BOARD_SECRETARIAT: '/board/dashboard',
+  BOARD_MEMBER: '/board-papers',
   EXECUTIVE_VIEWER: '/executive-dashboard',
   SYSTEM_ADMIN: '/admin',
 };
@@ -62,6 +64,7 @@ export const ROLE_LANDING_PAGE: Record<RoleCode, string> = {
 export const ROLE_LANDING_PRIORITY: RoleCode[] = [
   'SUBMITTER',
   'REVIEWER_SECRETARIAT',
+  'BOARD_MEMBER',
   'MANAGER',
   'DIRECTOR',
   'SMC_SECRETARIAT',

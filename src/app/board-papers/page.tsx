@@ -14,7 +14,8 @@ export default async function BoardPapersPage() {
         r.roleCode === 'SUBMITTER' ||
         r.roleCode === 'REVIEWER_SECRETARIAT' ||
         r.roleCode === 'EXECUTIVE_VIEWER' ||
-        r.roleCode === 'SYSTEM_ADMIN',
+        r.roleCode === 'SYSTEM_ADMIN' ||
+        r.roleCode === 'BOARD_MEMBER',
     )
   ) {
     redirect('/');

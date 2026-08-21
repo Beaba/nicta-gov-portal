@@ -23,7 +23,7 @@ export async function AppHeader({ user, active }: { user: AuthenticatedUser; act
   );
   const isExecutive = user.roles.some((r) => r.roleCode === 'EXECUTIVE_VIEWER');
   const portalRoleName = user.roles.find((r) =>
-    ['SUBMITTER', 'REVIEWER_SECRETARIAT', 'EXECUTIVE_VIEWER'].includes(r.roleCode),
+    ['SUBMITTER', 'REVIEWER_SECRETARIAT', 'EXECUTIVE_VIEWER', 'BOARD_MEMBER'].includes(r.roleCode),
   )?.roleName;
 
   const tabs: { href: string; label: string; key: string; icon: typeof DocumentIcon }[] = [];

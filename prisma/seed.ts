@@ -198,6 +198,23 @@ async function main() {
     departmentCode: 'DIGITAL_TRANSFORMATION',
     roleAssignments: [{ role: 'SYSTEM_ADMIN', departmentCode: null }],
   });
+  // Board Members — read-only access to the Board Papers register (submissionCategory: 'BOARD'
+  // only, enforced in assertCanAccessSubmission). Org-wide like CEO. No real Board Member names
+  // were given by the client; these are placeholder demo accounts, same as CEO/Admin above.
+  await upsertUser({
+    email: 'board.member1.demo@nicta.gov.pg',
+    name: 'James Nou (Demo Board Member)',
+    jobTitle: 'Board Member',
+    departmentCode: null,
+    roleAssignments: [{ role: 'BOARD_MEMBER', departmentCode: null }],
+  });
+  await upsertUser({
+    email: 'board.member2.demo@nicta.gov.pg',
+    name: 'Winnie Kaupa (Demo Board Member)',
+    jobTitle: 'Board Member',
+    departmentCode: null,
+    roleAssignments: [{ role: 'BOARD_MEMBER', departmentCode: null }],
+  });
 
   // Directors Submission Portal MVP workflow users — see docs/mvp-directors-portal-plan.md.
   const submitter = await upsertUser({

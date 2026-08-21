@@ -371,3 +371,79 @@ the document-storage rework, logged separately once that work lands).
   seed script explicitly deletes any `SUBMITTER`/`DIRECTOR` `UserRole` row for these five directors
   that doesn't match their roster department, once, as part of seeding — otherwise re-running
   `db:seed` would have left Robertson Asari with submit rights in two departments.
+
+## A22 — Document file names carry Department/Date/Sitting-number; Board Members can now sign in (2026-08-21)
+
+The client described the end-to-end workflow again in prose and added two concrete requirements not
+previously captured: a specific file-naming convention, and Board Member access to Board Papers.
+
+- **File naming**: "documents are named based on the Department Name, SMC Date, SMC Board Sitting
+  number." Read as a requirement on the destination _file_ name specifically (the folder path,
+  built in the same pass that landed `#A21`'s sibling work, already encodes department/date/
+  on-time-vs-late its own way and wasn't asked to change). `pathBuilder.ts`'s
+  `documentFileNamePrefix()` prepends `{DepartmentFolder}_{meetingDate:YYYY-MM-DD}_{meetingNumber}_`
+  to every SMC/Board document's file name, ahead of the existing `{referenceNumber}_{titleSlug}`
+  (kept, not replaced — department+date+sitting-number alone would collide for every paper filed to
+  the same department at the same meeting, and reference numbers are the schema's actual uniqueness
+  guarantee). Applies to Board Paper files too, using the Board Paper's own department (inherited
+  from its SMC source) — not just SMC ones. `meetingNumber` (the client's "sitting number") is a new
+  field threaded onto `DocumentPlacementMetadata` alongside the pre-existing `meetingDate`, sourced
+  from the same already-fetched `Meeting` row at every call site; falls back to the literal string
+  `"NO-MEETING"` in the same rare no-linked-meeting case `meetingDate` already falls back to
+  `createdAt` for (see `#A21`'s note in `docs/known-limitations.md`).
+- **`BOARD_MEMBER` role added** — "This is another login that has to be made so the board can now
+  access the papers." Not a new authentication system: the exact same email-lookup sign-in
+  (`#A20`) every other role uses, just a new role code with its own scope. Read-only, and
+  deliberately narrower than `EXECUTIVE_VIEWER`: `assertCanAccessSubmission()`
+  (`src/lib/submissions/submissions.ts`) grants a `BOARD_MEMBER` access to a submission only when
+  `submissionCategory === 'BOARD'` — never SMC papers, which the client was explicit stay internal
+  to Directors/Corporate Secretary/CEO. Reuses the existing `/board-papers` register page (added to
+  its role gate) rather than building a new screen — it already lists every Board Paper org-wide via
+  `listBoardPapers()`. No real Board Member names were given, so two placeholder demo accounts were
+  seeded (`board.member1.demo@nicta.gov.pg`, `board.member2.demo@nicta.gov.pg`), the same pattern as
+  the still-placeholder CEO/Admin demo accounts.
+- **Verified**: re-checked the `/api/documents/local/[...key]` download route end-to-end with an
+  authenticated session (`#A21`'s CEO-document-retrieval concern) — it already worked correctly
+  (Next.js decodes catch-all route params before this app's own code sees them, so the earlier
+  suspicion of a double-encoding bug was unfounded), no fix needed there. Separately ran the full
+  client-described workflow live through the real UI end to end (Director submits → Corporate
+  Secretary endorses for Board → Director submits the Board Paper → CEO and a Board Member both view
+  it via `/board-papers`) — everything worked, including seeing the new file-naming convention
+  render correctly in the submission detail page's own "Document Destination" preview. Caught and
+  fixed one small display bug this surfaced: `AppHeader`'s role-name label didn't recognize
+  `BOARD_MEMBER`, showing "Portal user" instead of "Board Member" — added to the same allow-list
+  `SUBMITTER`/`REVIEWER_SECRETARIAT`/`EXECUTIVE_VIEWER` already use.
+
+## A23 — Deployment-readiness audit (2026-08-21)
+
+"Ensure all is ready for deployment" — read as an audit-and-document pass, not an instruction to
+actually provision or push anywhere (no real hosting/Postgres/Microsoft 365 credentials exist in
+this environment to deploy against).
+
+- **`npm run build` (a real production build, not just `tsc`/dev mode) verified clean** — this is a
+  meaningfully different check than typecheck/lint/dev-mode, since production builds apply stricter
+  checks. All 20 routes compiled with no errors. One operational note for future sessions: running a
+  production build while the dev server is also running writes into the same `.next/` the dev server
+  uses for its cache and leaves it serving 500s afterward — not a code bug, just restart the dev
+  server (kill both `node.exe` processes matching `nicta-gov-portal`, same as the existing
+  EPERM-on-`prisma generate` workaround) after building.
+- **Security headers added** (`next.config.mjs`): `X-Frame-Options: DENY`, `X-Content-Type-Options:
+nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, a restrictive `Permissions-Policy`,
+  `Strict-Transport-Security` (no `preload` — that's a separate, effectively-irreversible browser
+  opt-in, deliberately left for a real decision later). No Content-Security-Policy added — building
+  one against this app's actual script/style sources and smoke-testing it is real work that
+  shouldn't happen as a guess during an audit pass; `docs/deployment-guide.md` says so explicitly for
+  whoever adds one.
+- **`docs/deployment-guide.md` written** — was a dangling reference (`.env.example`'s header comment
+  already pointed at it) that never existed. Covers target hosting shape (a long-running Node
+  process — Server Actions rule out static/pure-edge hosting), the local-filesystem document-storage
+  constraint (`.data/documents/` needs a persistent volume, or switch to
+  `DOCUMENT_STORAGE_PROVIDER=sharepoint`, for any host with an ephemeral filesystem), the
+  HTTPS-required-for-session-cookies constraint, real-Postgres + `migrate deploy` (not `migrate dev`)
+  - a deliberate one-time `db:seed` decision, the full env var checklist, and a pre-deploy checklist.
+    Points at `docs/known-limitations.md` for current mock/stub status rather than duplicating it.
+- **Confirmed, not fixed**: `.env.example` and a few provider files reference
+  `docs/graph-permissions-guide.md`, `docs/sharepoint-provisioning-guide.md`, and
+  `docs/ai-integration-contract.md` — none exist yet. Pre-existing gap from earlier in the project,
+  not introduced by this pass; noted rather than authored on spec, since a real integration contract
+  doc needs the actual internal AI service's real request/response shape, not a guess.

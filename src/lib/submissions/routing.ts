@@ -15,6 +15,7 @@ async function buildPlacement(submission: Submission): Promise<DocumentPlacement
   // ACCEPTED/ROUTED, but fall back to createdAt rather than throw if that's ever not the case —
   // see docs/known-limitations.md.
   const meetingDate = (meeting?.meetingDate ?? submission.createdAt).toISOString();
+  const meetingNumber = meeting?.meetingNumber ?? 'NO-MEETING';
   const fileName = submission.mainDocumentFileName ?? 'document';
 
   if (submission.submissionCategory === 'BOARD') {
@@ -28,7 +29,9 @@ async function buildPlacement(submission: Submission): Promise<DocumentPlacement
       kind: 'BOARD_MAIN',
       referenceNumber: submission.referenceNumber,
       title: source?.title ?? submission.title,
+      departmentName: department?.name ?? 'Unfiled',
       meetingDate,
+      meetingNumber,
       fileName,
     };
   }
@@ -39,6 +42,7 @@ async function buildPlacement(submission: Submission): Promise<DocumentPlacement
     title: submission.title,
     departmentName: department?.name ?? 'Unfiled',
     meetingDate,
+    meetingNumber,
     isLate: submission.isLate,
     fileName,
   };

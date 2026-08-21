@@ -55,6 +55,19 @@ function meetingDateParts(meetingDateIso: string): { year: string; compact: stri
   return { year: String(dt.year), compact: dt.toFormat('yyyy-LL-dd') };
 }
 
+/** The client's file-naming requirement: "documents are named based on the Department Name, SMC
+ * Date, SMC Board Sitting number" — folded into the destination *file* name (the folder path
+ * already encodes department/date separately; this is about what the .docx/.pdf itself is called
+ * once someone has downloaded it out of its folder). Format:
+ * "{DepartmentFolder}_{YYYY-MM-DD}_{MeetingNumber}_{ReferenceNumber}_{TitleSlug}{ext}". */
+function documentFileNamePrefix(
+  departmentName: string,
+  meetingDateCompact: string,
+  meetingNumber: string,
+): string {
+  return `${departmentFolderName(departmentName)}_${meetingDateCompact}_${meetingNumber}`;
+}
+
 function requireField<K extends keyof DocumentPlacementMetadata>(
   placement: DocumentPlacementMetadata,
   key: K,
@@ -99,7 +112,9 @@ export function buildDocumentPathSegments(placement: DocumentPlacementMetadata):
       const title = requireField(placement, 'title');
       const departmentName = requireField(placement, 'departmentName');
       const meetingDate = requireField(placement, 'meetingDate');
+      const meetingNumber = requireField(placement, 'meetingNumber');
       const { year, compact } = meetingDateParts(meetingDate);
+      const namePrefix = documentFileNamePrefix(departmentName, compact, meetingNumber);
       const base = [
         GOVERNANCE_LIBRARY,
         '01_SMC_Submissions',
@@ -111,17 +126,21 @@ export function buildDocumentPathSegments(placement: DocumentPlacementMetadata):
       ];
 
       if (placement.kind === 'SMC_MAIN') {
-        return [...base, '01_Submitted_Paper', `${referenceNumber}_${slugifyTitle(title)}${ext}`];
+        return [
+          ...base,
+          '01_Submitted_Paper',
+          `${namePrefix}_${referenceNumber}_${slugifyTitle(title)}${ext}`,
+        ];
       }
       if (placement.kind === 'SMC_ANNEXURE') {
         const annexureOrder = requireField(placement, 'annexureOrder');
         return [
           ...base,
           '02_Annexures',
-          `${referenceNumber}_ANNEX-${annexureLetter(annexureOrder)}${ext}`,
+          `${namePrefix}_${referenceNumber}_ANNEX-${annexureLetter(annexureOrder)}${ext}`,
         ];
       }
-      return [...base, '03_Reviewed_Output', `${referenceNumber}_Reviewed${ext}`];
+      return [...base, '03_Reviewed_Output', `${namePrefix}_${referenceNumber}_Reviewed${ext}`];
     }
 
     case 'BOARD_MAIN':
@@ -140,15 +159,26 @@ export function buildDocumentPathSegments(placement: DocumentPlacementMetadata):
         `${referenceNumber}_${slugifyTitle(title)}`,
       ];
 
-      if (placement.kind === 'BOARD_MAIN') {
-        return [...base, '01_Board_Paper', `${referenceNumber}_${slugifyTitle(title)}${ext}`];
-      }
-      if (placement.kind === 'BOARD_ANNEXURE') {
+      if (placement.kind === 'BOARD_MAIN' || placement.kind === 'BOARD_ANNEXURE') {
+        // Same client naming requirement as SMC_* above ("Department Name, SMC Date, Sitting
+        // number"), using the Board Paper's own department/meeting (inherited from its SMC
+        // source — see docs/known-limitations.md on Board Papers currently sharing the SMC
+        // meeting rather than a distinct Board meeting).
+        const departmentName = requireField(placement, 'departmentName');
+        const meetingNumber = requireField(placement, 'meetingNumber');
+        const namePrefix = documentFileNamePrefix(departmentName, compact, meetingNumber);
+        if (placement.kind === 'BOARD_MAIN') {
+          return [
+            ...base,
+            '01_Board_Paper',
+            `${namePrefix}_${referenceNumber}_${slugifyTitle(title)}${ext}`,
+          ];
+        }
         const annexureOrder = requireField(placement, 'annexureOrder');
         return [
           ...base,
           '02_Annexures',
-          `${referenceNumber}_ANNEX-${annexureLetter(annexureOrder)}${ext}`,
+          `${namePrefix}_${referenceNumber}_ANNEX-${annexureLetter(annexureOrder)}${ext}`,
         ];
       }
       // BOARD_SMC_SOURCE: fixed file name (e.g. "Source-Reference.txt"), used verbatim.

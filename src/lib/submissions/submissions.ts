@@ -36,7 +36,12 @@ function assertCanAccessSubmission(submission: Submission, user: AuthenticatedUs
       r.roleCode === 'SYSTEM_ADMIN' ||
       r.roleCode === 'EXECUTIVE_VIEWER',
   );
-  if (!isOwner && !hasOversight) {
+  // Board Members get read-only access to Board Papers only — never SMC papers, which stay
+  // internal to Directors/Corporate Secretary/CEO. Deliberately narrower than hasOversight above.
+  const isBoardMemberOnBoardPaper =
+    submission.submissionCategory === 'BOARD' &&
+    user.roles.some((r) => r.roleCode === 'BOARD_MEMBER');
+  if (!isOwner && !hasOversight && !isBoardMemberOnBoardPaper) {
     throw new AuthorizationError('No access to this submission');
   }
 }
@@ -154,6 +159,7 @@ export async function uploadMainDocument(
   // uploaded (createDraftSubmission requires one), but fall back to createdAt rather than throw
   // if that's ever not the case — see docs/known-limitations.md.
   const meetingDate = (meeting?.meetingDate ?? submission.createdAt).toISOString();
+  const meetingNumber = meeting?.meetingNumber ?? 'NO-MEETING';
 
   const storage = getDocumentStorageProvider();
   const stored = await storage.upload({
@@ -166,6 +172,7 @@ export async function uploadMainDocument(
       title: submission.title,
       departmentName: department?.name ?? 'Unfiled',
       meetingDate,
+      meetingNumber,
       isLate: submission.isLate,
       fileName: file.fileName,
     },
@@ -257,6 +264,7 @@ export async function uploadAnnexure(
   ]);
   // TODO: see the matching TODO in uploadMainDocument above re: the meetingId-null fallback.
   const meetingDate = (meeting?.meetingDate ?? submission.createdAt).toISOString();
+  const meetingNumber = meeting?.meetingNumber ?? 'NO-MEETING';
 
   const storage = getDocumentStorageProvider();
   const stored = await storage.upload({
@@ -269,6 +277,7 @@ export async function uploadAnnexure(
       title: submission.title,
       departmentName: department?.name ?? 'Unfiled',
       meetingDate,
+      meetingNumber,
       isLate: submission.isLate,
       annexureOrder: existingCount,
       fileName: file.fileName,
@@ -377,6 +386,7 @@ export async function submitSubmission(submissionId: string, actingUser: Authent
     ]);
     // TODO: see the matching TODO in uploadMainDocument above re: the meetingId-null fallback.
     const meetingDate = (meeting?.meetingDate ?? current.createdAt).toISOString();
+    const meetingNumber = meeting?.meetingNumber ?? 'NO-MEETING';
 
     const storage = getDocumentStorageProvider();
     const stored = await storage.upload({
@@ -391,6 +401,7 @@ export async function submitSubmission(submissionId: string, actingUser: Authent
         title: current.title,
         departmentName: department?.name ?? 'Unfiled',
         meetingDate,
+        meetingNumber,
         isLate: current.isLate,
         fileName: draft.fileName,
       },

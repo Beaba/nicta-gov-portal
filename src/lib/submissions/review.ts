@@ -244,10 +244,11 @@ export async function submitBoardPaper(
     );
   }
 
-  const [meeting, year] = await Promise.all([
+  const [meeting, department, year] = await Promise.all([
     source.meetingId
       ? prisma.meeting.findUnique({ where: { id: source.meetingId } })
       : Promise.resolve(null),
+    prisma.department.findUnique({ where: { id: source.departmentId } }),
     Promise.resolve(new Date().getFullYear().toString()),
   ]);
   const referenceNumber = await nextReferenceNumber('BP', year);
@@ -255,6 +256,7 @@ export async function submitBoardPaper(
   // point, but fall back to the source submission's createdAt rather than throw if that's ever
   // not the case — see docs/known-limitations.md.
   const meetingDate = (meeting?.meetingDate ?? source.createdAt).toISOString();
+  const meetingNumber = meeting?.meetingNumber ?? 'NO-MEETING';
 
   const storage = getDocumentStorageProvider();
   const stored = await storage.upload({
@@ -268,7 +270,12 @@ export async function submitBoardPaper(
       // Paper: ..." title — see the matching note on buildPlacement in routing.ts, which must
       // resolve the same title so its routing preview matches where the file actually lives.
       title: source.title,
+      // Client's file-naming requirement ("Department Name, SMC Date, Sitting number") applies to
+      // Board Paper files too — using the Board Paper's own department, inherited from its SMC
+      // source (see submitBoardPaper's `departmentId: source.departmentId` a few lines below).
+      departmentName: department?.name ?? 'Unfiled',
       meetingDate,
+      meetingNumber,
       fileName: input.file.fileName,
     },
   });
