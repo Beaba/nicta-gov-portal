@@ -1,12 +1,17 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { getCurrentUser } from '@/lib/auth';
-import { listAllSubmissions } from '@/lib/submissions/review';
+import { listAllSubmissions, listSubmissionsAwaitingCeoReview } from '@/lib/submissions/review';
+import { getSubmissionForUser } from '@/lib/submissions/submissions';
 import { getCurrentSmcMeetingWithDeadline } from '@/lib/submissions/meetings';
+import { AuthorizationError } from '@/lib/auth/rbac';
+import type { AuthenticatedUser } from '@/lib/auth/types';
 import { PortalShell } from '@/components/PortalShell';
 import { DashboardStatCard } from '@/components/DashboardStatCard';
 import { DashboardMeetingBar } from '@/components/DashboardMeetingBar';
-import { DocumentIcon, ClockIcon, UndoIcon, ShieldCheckIcon } from '@/components/icons';
+import { CeoVettingForm } from '@/components/CeoVettingForm';
+import { ceoVetForBoardAction, ceoNotVetForBoardAction } from '@/app/executive-dashboard/actions';
+import { DocumentIcon, ClockIcon, UndoIcon, ShieldCheckIcon, SearchIcon } from '@/components/icons';
 
 type SubmissionWithDepartment = Awaited<ReturnType<typeof listAllSubmissions>>[number];
 
@@ -17,14 +22,20 @@ const BOARD_PAPERS_SHOWN = 5;
 // CEO ("reviews and reads") — client requirement, docs/mvp-directors-portal-plan.md#A18.
 // Org-wide, read-only: every SMC submission and Board Paper, regardless of department. Rebuilt
 // onto PortalShell to match the client-approved dashboard reference (#A26).
-export default async function ExecutiveDashboardPage() {
+export default async function ExecutiveDashboardPage({
+  searchParams,
+}: {
+  searchParams: { selected?: string };
+}) {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
   if (!user.roles.some((r) => r.roleCode === 'EXECUTIVE_VIEWER')) redirect('/');
 
-  const [submissions, meeting] = await Promise.all([
+  const [submissions, meeting, awaitingReview, selectedSubmission] = await Promise.all([
     listAllSubmissions(user),
     getCurrentSmcMeetingWithDeadline(),
+    listSubmissionsAwaitingCeoReview(user),
+    loadSelectedSubmission(searchParams.selected, user),
   ]);
 
   const smcSubmissions = submissions.filter((s) => s.submissionCategory === 'SMC');
@@ -37,6 +48,16 @@ export default async function ExecutiveDashboardPage() {
 
   const departmentRows = summarizeByDepartment(smcSubmissions);
 
+  const boundVet = selectedSubmission
+    ? ceoVetForBoardAction.bind(null, selectedSubmission.id)
+    : undefined;
+  const boundNotVet = selectedSubmission
+    ? ceoNotVetForBoardAction.bind(null, selectedSubmission.id)
+    : undefined;
+  const canVet =
+    selectedSubmission?.workflowStatus === 'ACCEPTED' ||
+    selectedSubmission?.workflowStatus === 'ROUTED';
+
   return (
     <PortalShell user={user} active="executive-dashboard">
       <h1 className="text-3xl font-bold text-nicta-teal-dark">CEO Dashboard</h1>
@@ -48,11 +69,103 @@ export default async function ExecutiveDashboardPage() {
         submissionsCloseAt={meeting?.deadline?.normalCloseAt ?? null}
       />
 
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <DashboardStatCard
+          label="Awaiting Your Review"
+          value={awaitingReview.length}
+          icon={SearchIcon}
+        />
         <DashboardStatCard label="Total Submissions" value={totalSubmissions} icon={DocumentIcon} />
         <DashboardStatCard label="Late" value={lateCount} icon={ClockIcon} />
         <DashboardStatCard label="Returned" value={returnedCount} icon={UndoIcon} />
         <DashboardStatCard label="Vetted for Board" value={vettedCount} icon={ShieldCheckIcon} />
+      </div>
+
+      {/* The CEO's own substantive Board-escalation decision (#A27) — Corporate Secretariat's
+          completeness check no longer includes this power. Same ?selected={id} master-detail
+          pattern as the Corporate Secretariat dashboard's Review Actions panel. */}
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_360px]">
+        <section className="rounded-xl bg-white shadow-sm">
+          <div className="p-5 pb-3">
+            <h2 className="font-semibold text-nicta-teal-dark">Awaiting Your Review</h2>
+          </div>
+          {awaitingReview.length === 0 ? (
+            <p className="px-5 pb-6 text-sm text-nicta-neutral-700">
+              No accepted submissions are currently awaiting your review.
+            </p>
+          ) : (
+            <table className="w-full border-collapse text-sm">
+              <thead className="border-y border-nicta-neutral-200 bg-nicta-neutral-50 text-left text-[11px] uppercase tracking-wide text-nicta-neutral-700">
+                <tr>
+                  <th className="px-5 py-2 font-semibold">Reference</th>
+                  <th className="px-5 py-2 font-semibold">Department</th>
+                  <th className="px-5 py-2 font-semibold">Paper title</th>
+                  <th className="px-5 py-2 font-semibold">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {awaitingReview.map((s) => (
+                  <tr
+                    key={s.id}
+                    className={`border-b border-nicta-neutral-200 last:border-0 ${
+                      s.id === selectedSubmission?.id
+                        ? 'bg-nicta-teal-light'
+                        : 'hover:bg-nicta-neutral-50'
+                    }`}
+                  >
+                    <td className="px-5 py-3 font-semibold text-nicta-teal-dark">
+                      {s.referenceNumber}
+                    </td>
+                    <td className="px-5 py-3 text-nicta-neutral-700">{s.department.name}</td>
+                    <td className="px-5 py-3 text-nicta-neutral-900">{s.title}</td>
+                    <td className="px-5 py-3">
+                      <Link
+                        href={`/executive-dashboard?selected=${s.id}`}
+                        className="font-semibold text-nicta-teal hover:underline"
+                      >
+                        Review
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+
+        <section className="h-fit rounded-xl bg-white p-5 shadow-sm">
+          <h2 className="font-semibold text-nicta-teal-dark">Vetting Decision</h2>
+          {!selectedSubmission ? (
+            <p className="mt-4 text-sm text-nicta-neutral-700">
+              Select a submission to record your Board-vetting decision.
+            </p>
+          ) : (
+            <div className="mt-4 space-y-4">
+              <div>
+                <p className="text-xs text-nicta-neutral-700">
+                  {selectedSubmission.referenceNumber}
+                </p>
+                <p className="font-semibold text-nicta-teal-dark">{selectedSubmission.title}</p>
+                <p className="mt-1 text-xs text-nicta-neutral-700">
+                  {selectedSubmission.paperType}
+                </p>
+              </div>
+              {canVet && boundVet && boundNotVet ? (
+                <CeoVettingForm onVetForBoard={boundVet} onNotVetForBoard={boundNotVet} />
+              ) : (
+                <p className="text-sm text-nicta-neutral-700">
+                  This submission has already been vetted or isn&rsquo;t awaiting your review.{' '}
+                  <Link
+                    href={`/submissions/${selectedSubmission.id}`}
+                    className="font-semibold text-nicta-teal hover:underline"
+                  >
+                    View full detail →
+                  </Link>
+                </p>
+              )}
+            </div>
+          )}
+        </section>
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
@@ -162,4 +275,17 @@ function DepartmentStatusPill({ hasLate }: { hasLate: boolean }) {
       {hasLate ? 'Attention' : 'Complete'}
     </span>
   );
+}
+
+// Backs the "Vetting Decision" panel's master-detail selection (?selected={id}) — same pattern and
+// same reasoning as review-queue/page.tsx's loadSelectedSubmission: a bad/inaccessible id must
+// never crash or redirect the whole dashboard, only leave the panel on its placeholder state.
+async function loadSelectedSubmission(id: string | undefined, user: AuthenticatedUser) {
+  if (!id) return null;
+  try {
+    return await getSubmissionForUser(id, user);
+  } catch (err) {
+    if (err instanceof AuthorizationError) return null;
+    return null;
+  }
 }

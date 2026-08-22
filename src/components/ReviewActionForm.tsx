@@ -2,21 +2,20 @@
 
 import { useState } from 'react';
 
-// The three review actions share one comment textarea (client requirement: one compact panel, not
-// three separate forms), but only "Return for Correction" requires a non-empty comment
-// (returnSubmissionForCorrection throws SubmissionValidationError server-side otherwise — see
-// src/lib/submissions/review.ts). The old separate-forms page could put `required` directly on
-// that one textarea; a single shared field can't do that without also blocking the other two
-// actions, which don't need a comment. This intercepts only the Return click to check client-side,
-// so an empty-comment Return shows an inline message instead of hitting a raw server error.
+// Corporate Secretariat's two completeness-check outcomes (#A27 moved the Board-escalation
+// decision to the CEO's own panel, CeoVettingForm — Secretariat no longer has a third button
+// here). They share one comment textarea, but only "Return for Correction" requires a non-empty
+// comment (returnSubmissionForCorrection throws SubmissionValidationError server-side otherwise —
+// see src/lib/submissions/review.ts). A single shared field can't put `required` on the textarea
+// itself without also blocking Accept, which doesn't need a comment — this intercepts only the
+// Return click to check client-side, so an empty-comment Return shows an inline message instead of
+// hitting a raw server error.
 export function ReviewActionForm({
   onReturn,
   onNote,
-  onEndorse,
 }: {
   onReturn: (formData: FormData) => void;
   onNote: (formData: FormData) => void;
-  onEndorse: (formData: FormData) => void;
 }) {
   const [comment, setComment] = useState('');
   const [showReturnError, setShowReturnError] = useState(false);
@@ -65,13 +64,6 @@ export function ReviewActionForm({
           className="rounded-md bg-nicta-charcoal px-4 py-2 text-sm font-medium text-white hover:opacity-90"
         >
           Accept for SMC
-        </button>
-        <button
-          type="submit"
-          formAction={onEndorse}
-          className="rounded-md bg-status-success px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-        >
-          Vetted for Board
         </button>
       </div>
     </form>

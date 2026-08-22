@@ -10,7 +10,7 @@ import { ShieldLockIcon, EnvelopeIcon } from '@/components/icons';
 
 const LOGIN_ERROR_MESSAGES: Record<string, string> = {
   not_provisioned:
-    'No NICTA Board Submission Portal account exists for that email yet. Ask your Administrator (Corporate Secretary) to add you via Administration → Manage Users, using this exact email address, then try again.',
+    'No NICTA Internal Executive and Board Portal account exists for that email yet. Ask your Administrator (Corporate Secretary) to add you via Administration → Manage Users, using this exact email address, then try again.',
   missing_credentials: 'Enter both your email address and password.',
   missing_code:
     'Microsoft sign-in did not complete — no authorization code was returned. Please try again.',
@@ -45,10 +45,10 @@ export default async function LoginPage({ searchParams }: { searchParams: { erro
             </div>
 
             <p className="text-sm font-medium text-nicta-sand">Welcome to the</p>
-            <h1 className="mt-2 text-3xl font-bold leading-tight text-white sm:text-4xl">
-              NICTA Board
+            <h1 className="mt-2 text-2xl font-bold leading-tight text-white sm:text-3xl">
+              NICTA Internal
               <br />
-              Submission Portal
+              Executive and Board Portal
             </h1>
             <div className="mt-4 h-[3px] w-16 bg-nicta-sand" />
             <p className="mt-4 text-sm text-nicta-neutral-100/90 sm:text-base">

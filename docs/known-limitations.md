@@ -84,3 +84,25 @@ both Director and Corporate Services Director roles could use it.
   Board-meeting-scheduling feature (an admin screen to create `MeetingType: BOARD` meetings, plus a
   picker in the Board Paper submission flow), which is a separate scope of work from the
   folder-placement redesign this was found during.
+- **CEO comments are not emailed.** `#A27` wired the CEO's Vetted/Not-Vetted decision to the
+  existing in-app `NotificationProvider` (the Director sees it on next login/refresh), matching the
+  client's own fallback instruction ("if email credentials are not available, implement an
+  email-provider interface... without blocking the portal workflow"). No `EmailProvider` interface
+  exists yet — `src/lib/providers/notifications/graphProvider.ts` is an unimplemented stub (throws)
+  behind `NOTIFICATION_PROVIDER=graph`, never wired to a real Graph/SMTP send. Real email delivery
+  needs that provider built and `NOTIFICATION_PROVIDER` switched in a deployment's `.env`.
+- **Manager weekly reporting is not implemented.** The client's spec describes a dedicated Manager
+  role workflow (reporting week, KPI/KRA, progress, risks, support requested, etc.) with strict
+  visibility boundaries (a Manager sees only their own submissions) that Directors then combine into
+  SMC submissions. `MANAGER` exists as a seeded role/department assignment (see `prisma/seed.ts`)
+  but has no dedicated pages, forms, or data model beyond the generic `Submission` — flagged as a
+  next-milestone recommendation in `#A27` rather than attempted in that pass.
+- **The Board paper state machine is still the original ~3-state simplified one** (`DRAFT` ->
+  `SUBMITTED` -> `CLOSED`, see `BOARD_STATUS_LABELS` in `src/components/StatusBadge.tsx`), not the
+  client's fuller ~10-state design (Board Secretariat pack-check, Board meeting stages, decision
+  recording, minute-out, archive). `#A27` scoped this out as Increment 2 work.
+- **SharePoint/archive routing doesn't yet carry paper-type or final/archive-status as distinct
+  folder dimensions.** The existing hierarchy (see the "SMC annexures" and "Board Papers file under"
+  entries above) already routes by year/meeting/on-time-vs-late/department; the client's fuller spec
+  additionally wants submission stage, paper type, and a distinct final/archive folder as explicit
+  dimensions — not built yet.

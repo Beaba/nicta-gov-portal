@@ -9,10 +9,10 @@ import {
   returnSubmissionForCorrection,
   routeSubmission,
   closeSubmission,
-  acceptAndEndorseForBoard,
 } from '@/lib/submissions/review';
 
-// SEMC "Noted" outcome — accepted, stays at SMC level, no Board Paper expected.
+// Corporate Secretariat's completeness check passed — accepted, awaiting the CEO's own review
+// (#A27: only the CEO decides Board escalation now, from /executive-dashboard).
 export async function noteSubmissionAction(
   submissionId: string,
   formData: FormData,
@@ -21,21 +21,6 @@ export async function noteSubmissionAction(
   const comment = String(formData.get('comment') ?? '') || undefined;
   await acceptSubmission(submissionId, user, comment);
   revalidatePath(`/review-queue/${submissionId}`);
-  redirect('/review-queue');
-}
-
-// SEMC "Endorsed for Board" outcome — see docs/mvp-directors-portal-plan.md's flow ("SEMC
-// Deliberations decides if the paper would go to Board"). Accepts and endorses in one step; the
-// Director then submits the actual Board Paper from the submission detail page.
-export async function endorseForBoardAction(
-  submissionId: string,
-  formData: FormData,
-): Promise<void> {
-  const user = requireUser(await getCurrentUser());
-  const comment = String(formData.get('comment') ?? '') || undefined;
-  await acceptAndEndorseForBoard(submissionId, user, comment);
-  revalidatePath(`/review-queue/${submissionId}`);
-  revalidatePath('/board-papers');
   redirect('/review-queue');
 }
 

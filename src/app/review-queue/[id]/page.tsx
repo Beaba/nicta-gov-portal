@@ -6,11 +6,7 @@ import { prisma } from '@/lib/db/prisma';
 import { PortalShell } from '@/components/PortalShell';
 import { StatusBadge } from '@/components/StatusBadge';
 import { AuthorizationError } from '@/lib/auth/rbac';
-import {
-  returnSubmissionAction,
-  noteSubmissionAction,
-  endorseForBoardAction,
-} from '@/app/review-queue/[id]/actions';
+import { returnSubmissionAction, noteSubmissionAction } from '@/app/review-queue/[id]/actions';
 
 export default async function ReviewSubmissionPage({ params }: { params: { id: string } }) {
   const user = await getCurrentUser();
@@ -29,10 +25,13 @@ export default async function ReviewSubmissionPage({ params }: { params: { id: s
   }
   if (!submission) notFound();
 
-  const [department, meeting, annexures, latestAIReview] = await Promise.all([
+  const [department, meeting, deadline, annexures, latestAIReview] = await Promise.all([
     prisma.department.findUnique({ where: { id: submission.departmentId } }),
     submission.meetingId
       ? prisma.meeting.findUnique({ where: { id: submission.meetingId } })
+      : null,
+    submission.meetingId
+      ? prisma.deadline.findUnique({ where: { meetingId: submission.meetingId } })
       : null,
     prisma.submissionAnnexure.findMany({
       where: { submissionId: submission.id },
@@ -45,7 +44,6 @@ export default async function ReviewSubmissionPage({ params }: { params: { id: s
   ]);
 
   const boundNote = noteSubmissionAction.bind(null, submission.id);
-  const boundEndorse = endorseForBoardAction.bind(null, submission.id);
   const boundReturn = returnSubmissionAction.bind(null, submission.id);
 
   return (
@@ -71,6 +69,23 @@ export default async function ReviewSubmissionPage({ params }: { params: { id: s
         />
         <Field label="Submitted" value={submission.submittedAt?.toLocaleString() ?? '—'} />
       </dl>
+
+      {submission.isLate && (
+        <div className="mt-4 rounded-md border-l-4 border-status-danger bg-status-danger-bg p-4">
+          <p className="text-sm font-semibold text-status-danger">Late submission</p>
+          {deadline && (
+            <p className="mt-1 text-xs text-nicta-neutral-900">
+              Original deadline: {deadline.normalCloseAt.toLocaleString()} — actual submission:{' '}
+              {submission.submittedAt?.toLocaleString() ?? '—'}
+            </p>
+          )}
+          {submission.lateJustification && (
+            <p className="mt-2 text-sm text-nicta-neutral-900">
+              <span className="font-semibold">Justification:</span> {submission.lateJustification}
+            </p>
+          )}
+        </div>
+      )}
 
       {submission.purpose && (
         <div className="mt-6">
@@ -138,7 +153,7 @@ export default async function ReviewSubmissionPage({ params }: { params: { id: s
       {submission.endorsedForBoard && (
         <section className="mt-6 rounded-md border border-status-accent/40 bg-status-accent/5 p-4">
           <p className="text-sm font-medium text-status-accent">
-            Endorsed for Board on {submission.endorsedForBoardAt?.toLocaleString()}
+            Vetted for Board by the CEO on {submission.endorsedForBoardAt?.toLocaleString()}
             {' — awaiting the Director to submit the Board Paper.'}
           </p>
         </section>
@@ -146,40 +161,20 @@ export default async function ReviewSubmissionPage({ params }: { params: { id: s
 
       {submission.workflowStatus === 'SECRETARIAT_REVIEW' && (
         <section className="mt-8 space-y-4">
-          <p className="text-sm font-semibold text-nicta-teal-dark">SEMC Deliberation Outcome</p>
-
-          <form
-            action={boundEndorse}
-            className="rounded-md border border-status-success/40 bg-white p-4"
-          >
-            <label htmlFor="endorse-comment" className="block text-sm font-medium">
-              Endorse for Board
-            </label>
-            <p className="text-xs text-nicta-neutral-700">
-              SEMC has deliberated and decided this paper should proceed to Board. The Director will
-              be notified to submit a Board Paper based on SEMC&rsquo;s comments.
-            </p>
-            <textarea
-              id="endorse-comment"
-              name="comment"
-              rows={2}
-              placeholder="SEMC comments (optional)"
-              className="input mt-2"
-            />
-            <button
-              type="submit"
-              className="mt-3 rounded-md bg-status-success px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-            >
-              Endorse for Board
-            </button>
-          </form>
+          <p className="text-sm font-semibold text-nicta-teal-dark">
+            Secretariat Completeness Check
+          </p>
+          <p className="text-xs text-nicta-neutral-700">
+            Whether this paper proceeds to Board is the CEO&rsquo;s decision, made from the
+            Executive Dashboard once accepted here — not part of this check.
+          </p>
 
           <form
             action={boundNote}
             className="rounded-md border border-nicta-neutral-200 bg-white p-4"
           >
             <label htmlFor="note-comment" className="block text-sm font-medium">
-              Note (no Board referral)
+              Accept for SMC
             </label>
             <textarea
               id="note-comment"
@@ -192,7 +187,7 @@ export default async function ReviewSubmissionPage({ params }: { params: { id: s
               type="submit"
               className="mt-3 rounded-md bg-nicta-charcoal px-4 py-2 text-sm font-medium text-white hover:opacity-90"
             >
-              Note
+              Accept for SMC
             </button>
           </form>
 

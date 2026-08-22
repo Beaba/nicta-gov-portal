@@ -11,11 +11,7 @@ import { DashboardStatCard } from '@/components/DashboardStatCard';
 import { DashboardMeetingBar } from '@/components/DashboardMeetingBar';
 import { StatusBadge } from '@/components/StatusBadge';
 import { ReviewActionForm } from '@/components/ReviewActionForm';
-import {
-  returnSubmissionAction,
-  noteSubmissionAction,
-  endorseForBoardAction,
-} from '@/app/review-queue/[id]/actions';
+import { returnSubmissionAction, noteSubmissionAction } from '@/app/review-queue/[id]/actions';
 import {
   SearchIcon,
   ClockIcon,
@@ -58,9 +54,6 @@ export default async function ReviewQueuePage({
     : undefined;
   const boundNote = selectedSubmission
     ? noteSubmissionAction.bind(null, selectedSubmission.id)
-    : undefined;
-  const boundEndorse = selectedSubmission
-    ? endorseForBoardAction.bind(null, selectedSubmission.id)
     : undefined;
 
   return (
@@ -184,12 +177,14 @@ export default async function ReviewQueuePage({
                 </p>
               </div>
 
-              {canAct && boundReturn && boundNote && boundEndorse ? (
-                <ReviewActionForm
-                  onReturn={boundReturn}
-                  onNote={boundNote}
-                  onEndorse={boundEndorse}
-                />
+              {canAct && boundReturn && boundNote ? (
+                <>
+                  <p className="mt-1 text-xs text-nicta-neutral-700">
+                    Completeness check only — whether this proceeds to Board is the CEO&rsquo;s
+                    decision, made separately from the Executive Dashboard once accepted.
+                  </p>
+                  <ReviewActionForm onReturn={boundReturn} onNote={boundNote} />
+                </>
               ) : (
                 <p className="text-sm text-nicta-neutral-700">
                   This submission has already been reviewed.{' '}

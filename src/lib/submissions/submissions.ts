@@ -110,13 +110,14 @@ export async function createAndSubmitPaper(
   file: { buffer: Buffer; fileName: string; contentType: string },
   actingUser: AuthenticatedUser,
   annexures: { buffer: Buffer; fileName: string; contentType: string; title: string }[] = [],
+  lateJustification?: string,
 ) {
   const draft = await createDraftSubmission(input, actingUser);
   await uploadMainDocument(draft.id, file, actingUser);
   for (const annexure of annexures) {
     await uploadAnnexure(draft.id, annexure, actingUser);
   }
-  return submitSubmission(draft.id, actingUser);
+  return submitSubmission(draft.id, actingUser, lateJustification);
 }
 
 /** Uploads (or replaces, on a RETURNED resubmission) the main paper. Scans before storing —
@@ -315,7 +316,11 @@ export async function uploadAnnexure(
  * system-triggered, not a manual step). AI review is advisory only and never blocks this chain —
  * see docs/milestone-1-plan.md.
  */
-export async function submitSubmission(submissionId: string, actingUser: AuthenticatedUser) {
+export async function submitSubmission(
+  submissionId: string,
+  actingUser: AuthenticatedUser,
+  lateJustification?: string,
+) {
   const submission = await prisma.submission.findUniqueOrThrow({ where: { id: submissionId } });
   requireAnyRole(actingUser, ['SUBMITTER']);
   if (submission.createdById !== actingUser.id) {
@@ -329,15 +334,32 @@ export async function submitSubmission(submissionId: string, actingUser: Authent
   }
   const mainDocumentFileName = submission.mainDocumentFileName;
 
+  // Late-submission enforcement (#A27): compared against the linked meeting's own Deadline, server
+  // clock, in the DB's stored instant — the same "deadline logic is server-side, never
+  // client-local" rule as every other deadline check in this app (CLAUDE.md, #A11). No Deadline
+  // configured for the meeting yet (admin hasn't set one) fails open — there is nothing to enforce
+  // against, so the submission proceeds on-time rather than being blocked by missing admin config.
+  const deadline = await prisma.deadline.findUnique({ where: { meetingId: submission.meetingId } });
+  const isLate = deadline ? new Date() > deadline.normalCloseAt : false;
+  if (isLate && (!lateJustification || lateJustification.trim().length === 0)) {
+    throw new SubmissionValidationError(
+      'The submission deadline has passed — a late-submission justification is required.',
+    );
+  }
+
   let current = await transitionSubmission({
     submission,
     toState: 'SUBMITTED',
     performedById: actingUser.id,
-    comment: 'Submitted by submitter',
+    comment: isLate ? `Late submission: ${lateJustification}` : 'Submitted by submitter',
   });
   current = await prisma.submission.update({
     where: { id: current.id },
-    data: { submittedAt: new Date() },
+    data: {
+      submittedAt: new Date(),
+      isLate,
+      lateJustification: isLate ? lateJustification : null,
+    },
   });
 
   const mainDocumentEvidence = await prisma.evidence.findFirst({

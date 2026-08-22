@@ -38,7 +38,10 @@ const STATUS_TONES: Record<string, string> = {
 export function StatusBadge({
   submission,
 }: {
-  submission: Pick<Submission, 'workflowStatus' | 'endorsedForBoard' | 'submissionCategory'>;
+  submission: Pick<
+    Submission,
+    'workflowStatus' | 'endorsedForBoard' | 'submissionCategory' | 'isLate'
+  >;
 }) {
   const isBoard = submission.submissionCategory === 'BOARD';
   const showEndorsed = !isBoard && submission.endorsedForBoard;
@@ -50,10 +53,17 @@ export function StatusBadge({
       submission.workflowStatus);
 
   return (
-    <span
-      className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${STATUS_TONES[key] ?? 'bg-nicta-neutral-100 text-nicta-neutral-700'}`}
-    >
-      {label}
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${STATUS_TONES[key] ?? 'bg-nicta-neutral-100 text-nicta-neutral-700'}`}
+      >
+        {label}
+      </span>
+      {submission.isLate && (
+        <span className="rounded-full bg-status-danger-bg px-2.5 py-1 text-[11px] font-bold text-status-danger">
+          Late
+        </span>
+      )}
     </span>
   );
 }

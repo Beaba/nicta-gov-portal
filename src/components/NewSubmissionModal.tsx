@@ -245,6 +245,25 @@ export function NewSubmissionModal({
                 </label>
               </div>
 
+              <div>
+                <label
+                  htmlFor="lateJustification"
+                  className="text-sm font-medium text-nicta-teal-dark"
+                >
+                  Late submission justification{' '}
+                  <span className="font-normal text-nicta-neutral-700">
+                    (only required if past the SMC deadline)
+                  </span>
+                </label>
+                <textarea
+                  id="lateJustification"
+                  name="lateJustification"
+                  rows={2}
+                  placeholder="Required only if the SMC submission deadline has already passed"
+                  className="input mt-1"
+                />
+              </div>
+
               {error && <p className="text-sm text-status-danger">{error}</p>}
 
               <div className="flex items-center justify-between border-t border-nicta-neutral-200 pt-4">

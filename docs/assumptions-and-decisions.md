@@ -588,3 +588,73 @@ pass plus 4 parallel agents, per the client's own "break up the agents" request.
   submission data or current behavior is wrong. A full `prisma migrate reset` would restore pristine
   seed data but risks discarding anything the client did in the app interactively, so it was not run
   without asking first.
+
+## A27 — CEO/Corporate Secretariat authority split, late-submission enforcement, portal rename (2026-08-22)
+
+The client's large expansion prompt (rename, role/department clarifications, explicit CEO-vs-
+Secretariat authority separation, Manager weekly reporting, full Board paper state machine,
+SharePoint archive routing, 17 acceptance scenarios) was scoped into increments rather than
+attempted in one pass — this is **Increment 1**: the single correctness-critical piece (only the
+CEO may mark "Vetted for Board") plus two well-bounded, no-migration-needed pieces already latent
+in the schema. Manager reporting, the full Board paper state machine, and archive/paper-type
+SharePoint routing are **not** in this pass — see the recommended-next-milestones list delivered
+to the client alongside this entry.
+
+- **CEO-only Board-vetting gate**: `markEndorsedForBoard` (`src/lib/submissions/review.ts`) was
+  gated on `REVIEWER_ROLES` (Corporate Secretariat) — the client's own instruction is explicit that
+  only the CEO may make this call, with the Secretariat limited to a completeness/pack check. Regated
+  to a new `CEO_ROLES` (`EXECUTIVE_VIEWER`, `SYSTEM_ADMIN`) constant; comment became required
+  (previously optional) since the client requires the CEO's reasoning to be stored and emailed to the
+  Director either way. Added a parallel `markNotVettedForBoard` for the CEO's other outcome, recorded
+  as an `AuditEvent` (`SUBMISSION_NOT_VETTED_FOR_BOARD`) rather than a new `workflowStatus` — the
+  submission stays `ACCEPTED`/`ROUTED` either way; a Director can act on the CEO's comment and
+  resubmit through the same completeness check. No schema migration: `workflowStatus` is a free-text
+  `String` column (`#A1`-era decision), so this is a new literal value plus a new audit-event `action`
+  string, not a new enum member.
+- **Corporate Secretariat's UI lost its 3rd button.** `ReviewActionForm.tsx`, `review-queue/page.tsx`,
+  `review-queue/[id]/page.tsx` all previously offered "Vetted for Board" alongside the completeness-
+  check actions (an artifact of `#A26`'s dashboard rebuild, which relabeled but didn't move the
+  power). Now strictly 2 actions (Return for Correction / Accept for SMC); both surfaces gained a
+  one-line note that the Board decision is the CEO's, made separately from the Executive Dashboard.
+  `executive-dashboard/page.tsx` gained a new master-detail "Awaiting Your Review" section (same
+  `?selected={id}` pattern as `#A26`'s review-queue panel) backed by a new
+  `listSubmissionsAwaitingCeoReview` query (`ACCEPTED`/`ROUTED` SMC submissions, not yet
+  `endorsedForBoard`, excluding anything already declined via the new audit-event) and a new
+  `CeoVettingForm` component (both buttons require a comment, unlike the Secretariat's form where
+  only Return does).
+- **Late-submission enforcement wired onto already-existing, previously-unused schema fields**
+  (`Submission.isLate`, `Submission.lateJustification` existed in the schema but nothing read or
+  wrote them before this pass). `submitSubmission` (`src/lib/submissions/submissions.ts`) now compares
+  `new Date()` against `Deadline.normalCloseAt` for the submission's meeting; past the deadline, a
+  submission is blocked without a non-empty `lateJustification`, and blocked submissions never reach
+  `SUBMITTED`. **Fails open**: if no `Deadline` row exists yet for the meeting (the admin hasn't set
+  one), nothing is ever late — there is nothing to enforce against, matching this MVP's existing
+  "a meeting can exist without a Deadline" contract (`#A17`/`getCurrentSmcMeetingWithDeadline`).
+  `NewSubmissionModal.tsx` gained an optional "Late submission justification" field, always visible
+  (client-side, the app can't cheaply know in advance whether _this_ attempt will land past the
+  deadline) but only enforced server-side. The client's other two visibility requirements — "visible
+  Late marking" and "original deadline vs actual submission date" — were **not** in the original
+  pasted prompt's file-level detail, but are explicit acceptance criteria, so were added in the same
+  pass: `StatusBadge.tsx` now renders a small red "Late" pill alongside the status pill wherever it's
+  used (5 call sites, all already had `isLate` on the object passed in — no query changes needed), and
+  both `submissions/[id]/page.tsx` and `review-queue/[id]/page.tsx` gained a late-submission banner
+  showing the original deadline, actual submission timestamp, and the Director's justification text.
+- **Portal renamed** to "NICTA Internal Executive and Board Portal" at its 3 remaining string sites
+  (`src/app/layout.tsx` `<title>`, `src/app/login/page.tsx`'s `not_provisioned` error copy and hero
+  headline). The login hero's font size was stepped down one Tailwind size (`text-3xl`/`sm:text-4xl`
+  -> `text-2xl`/`sm:text-3xl`) to keep the longer two-line headline inside the existing no-desktop-
+  scroll layout (`#A24`).
+- **Verified live**, not just typechecked: a throwaway Playwright script (`.tmp-verify-a27.mjs`,
+  deleted after the run — not committed) drove the real dev server against real seed accounts
+  (`rasari@nicta.gov.pg` as Submitter/Director, `ltol@nicta.gov.pg` as Corporate Secretariat,
+  `ceo.demo@nicta.gov.pg` as CEO — not `submitter.demo`/`reviewer.demo`, which turned out to already
+  be deactivated by an earlier real-roster migration) through: late submission blocked without
+  justification; late submission accepted with justification and shown with a "Late" badge; Secretariat
+  panel confirmed to expose only 2 actions; CEO "Awaiting Your Review" showing both accepted test
+  submissions; one vetted for Board, one not-vetted; both correctly dropping off the awaiting list
+  afterward (confirmed directly against the DB — `endorsedForBoard` true on one, false on the other).
+  All 4 test submissions, their `WorkflowTransition`/`AuditEvent`/`SubmissionReview`/`AIReviewResult`/
+  `Notification` rows, their uploaded `.data/documents/...` files, and the temporary past-due
+  `Deadline` row created to exercise the late path were deleted afterward — nothing test-induced was
+  left in the dev DB or local document store.
+- **Typecheck/lint clean throughout** (`npx tsc --noEmit`, `npx next lint`), Prettier-formatted.

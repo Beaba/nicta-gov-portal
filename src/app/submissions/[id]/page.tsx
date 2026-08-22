@@ -32,6 +32,7 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
   const [
     department,
     meeting,
+    deadline,
     annexures,
     latestAIReview,
     latestReview,
@@ -43,6 +44,9 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
     prisma.department.findUnique({ where: { id: submission.departmentId } }),
     submission.meetingId
       ? prisma.meeting.findUnique({ where: { id: submission.meetingId } })
+      : null,
+    submission.meetingId
+      ? prisma.deadline.findUnique({ where: { meetingId: submission.meetingId } })
       : null,
     prisma.submissionAnnexure.findMany({
       where: { submissionId: submission.id },
@@ -120,6 +124,23 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
           value={submission.submittedAt?.toLocaleString() ?? 'Not yet submitted'}
         />
       </dl>
+
+      {submission.isLate && (
+        <div className="mt-4 rounded-md border-l-4 border-status-danger bg-status-danger-bg p-4">
+          <p className="text-sm font-semibold text-status-danger">Late submission</p>
+          {deadline && (
+            <p className="mt-1 text-xs text-nicta-neutral-900">
+              Original deadline: {deadline.normalCloseAt.toLocaleString()} — actual submission:{' '}
+              {submission.submittedAt?.toLocaleString() ?? '—'}
+            </p>
+          )}
+          {submission.lateJustification && (
+            <p className="mt-2 text-sm text-nicta-neutral-900">
+              <span className="font-semibold">Justification:</span> {submission.lateJustification}
+            </p>
+          )}
+        </div>
+      )}
 
       {submission.purpose && (
         <div className="mt-6">

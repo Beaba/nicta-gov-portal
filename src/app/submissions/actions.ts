@@ -25,6 +25,7 @@ export async function createAndSubmitPaperAction(
   const title = String(formData.get('title') ?? '').trim();
   const templateId = String(formData.get('templateId') ?? '');
   const purpose = String(formData.get('purpose') ?? '').trim();
+  const lateJustification = String(formData.get('lateJustification') ?? '').trim() || undefined;
   const file = formData.get('file');
   const annexureFiles = formData
     .getAll('annexures')
@@ -50,6 +51,7 @@ export async function createAndSubmitPaperAction(
       { buffer, fileName: file.name, contentType: file.type },
       user,
       annexures,
+      lateJustification,
     );
     revalidatePath('/submissions');
     return { submissionId: submission.id };

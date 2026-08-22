@@ -13,6 +13,12 @@ import { SubmissionValidationError } from '@/lib/submissions/submissions';
 
 const REVIEWER_ROLES = ['REVIEWER_SECRETARIAT', 'SYSTEM_ADMIN'] as const;
 const OVERSIGHT_ROLES = ['REVIEWER_SECRETARIAT', 'SYSTEM_ADMIN', 'EXECUTIVE_VIEWER'] as const;
+// The CEO's substantive Board-escalation decision (#A27) is deliberately a separate role set from
+// REVIEWER_ROLES — Corporate Secretariat's job stops at completeness ("Accept for SMC" /
+// "Return for Correction"); only the CEO decides whether an accepted paper proceeds to Board.
+// SYSTEM_ADMIN stays included for the same reason it's in every other role gate in this file: an
+// emergency/testing override, not a governance role.
+const CEO_ROLES = ['EXECUTIVE_VIEWER', 'SYSTEM_ADMIN'] as const;
 
 async function acknowledgeLatestAIReview(submissionId: string): Promise<void> {
   const latest = await prisma.aIReviewResult.findFirst({
@@ -142,21 +148,29 @@ export async function closeSubmission(
 }
 
 /**
- * SEMC's decision that a paper should proceed to Board (docs/mvp-directors-portal-plan.md#A18) —
- * distinct from the paper actually reaching the Board Papers register. Setting this only unlocks
- * the Director's ability to submit a Board Paper (submitBoardPaper below); it is not itself a
- * workflow transition (no fromState/toState), so it's recorded as a plain audit event rather than
- * a WorkflowTransition row.
+ * The CEO's substantive decision that an accepted SMC paper should proceed to Board (#A27,
+ * superseding `#A18`'s version of this function, which let Corporate Secretariat make this call —
+ * the client was explicit that only the CEO may). Distinct from the paper actually reaching the
+ * Board Papers register: setting this only unlocks the Director's ability to submit a Board Paper
+ * (submitBoardPaper below). Not itself a workflowStatus transition (no fromState/toState), so it's
+ * recorded as a plain audit event rather than a WorkflowTransition row. A comment is mandatory —
+ * client requirement: "CEO comments must be stored against the submission... and sent... to the
+ * responsible Director" — surfaced via the same in-app notification every other reviewer action
+ * uses; a real email send requires a configured NOTIFICATION_PROVIDER=graph tenant, which this
+ * environment doesn't have (see docs/known-limitations.md).
  */
 export async function markEndorsedForBoard(
   submissionId: string,
   actingUser: AuthenticatedUser,
-  comment?: string,
+  comment: string,
 ): Promise<Submission> {
-  requireAnyRole(actingUser, REVIEWER_ROLES);
+  requireAnyRole(actingUser, CEO_ROLES);
+  if (!comment || comment.trim().length === 0) {
+    throw new SubmissionValidationError('A comment is required when vetting a paper for Board.');
+  }
   const submission = await prisma.submission.findUniqueOrThrow({ where: { id: submissionId } });
   if (submission.workflowStatus !== 'ACCEPTED' && submission.workflowStatus !== 'ROUTED') {
-    throw new SubmissionValidationError('Only an accepted submission can be endorsed for Board.');
+    throw new SubmissionValidationError('Only an accepted submission can be vetted for Board.');
   }
 
   const updated = await prisma.submission.update({
@@ -180,7 +194,7 @@ export async function markEndorsedForBoard(
   await getNotificationProvider().notify({
     userId: submission.createdById,
     type: 'SUBMISSION_ENDORSED_FOR_BOARD',
-    message: `${submission.referenceNumber} "${submission.title}" was endorsed by SEMC for Board — submit a Board Paper summarising the SEMC discussion.`,
+    message: `${submission.referenceNumber} "${submission.title}" was vetted for Board by the CEO: ${comment} — submit a Board Paper summarising the discussion.`,
     linkUrl: `/submissions/${submission.id}`,
   });
 
@@ -188,17 +202,68 @@ export async function markEndorsedForBoard(
 }
 
 /**
- * Combines Accept + Endorsed-for-Board into the single reviewer action the MVP's flow describes
- * ("SEMC Deliberations decides if the paper would go to Board") while reusing the existing,
- * already-audited acceptSubmission transition rather than duplicating it.
+ * The CEO's other substantive outcome — reviewed, and explicitly decided this paper should NOT
+ * proceed to Board (stays informational at SMC level). Without this, an accepted-but-unreviewed
+ * paper and a reviewed-and-declined paper are indistinguishable (`endorsedForBoard: false` means
+ * both). Recorded as a plain audit event, the same way `markEndorsedForBoard` is — `#A27`'s
+ * `listSubmissionsAwaitingCeoReview` below excludes anything with this event so it drops off the
+ * CEO's "awaiting review" list once decided either way.
  */
-export async function acceptAndEndorseForBoard(
+export async function markNotVettedForBoard(
   submissionId: string,
   actingUser: AuthenticatedUser,
-  comment?: string,
-): Promise<Submission> {
-  await acceptSubmission(submissionId, actingUser, comment);
-  return markEndorsedForBoard(submissionId, actingUser, comment);
+  comment: string,
+): Promise<void> {
+  requireAnyRole(actingUser, CEO_ROLES);
+  if (!comment || comment.trim().length === 0) {
+    throw new SubmissionValidationError(
+      'A comment is required when marking a paper not vetted for Board.',
+    );
+  }
+  const submission = await prisma.submission.findUniqueOrThrow({ where: { id: submissionId } });
+  if (submission.workflowStatus !== 'ACCEPTED' && submission.workflowStatus !== 'ROUTED') {
+    throw new SubmissionValidationError('Only an accepted submission can be reviewed by the CEO.');
+  }
+
+  await recordAuditEvent({
+    userId: actingUser.id,
+    action: 'SUBMISSION_NOT_VETTED_FOR_BOARD',
+    entityType: 'Submission',
+    entityId: submission.id,
+    newState: { endorsedForBoard: false, comment },
+    correlationRef: submission.referenceNumber,
+  });
+
+  await getNotificationProvider().notify({
+    userId: submission.createdById,
+    type: 'SUBMISSION_NOT_VETTED_FOR_BOARD',
+    message: `${submission.referenceNumber} "${submission.title}" was reviewed by the CEO and will not proceed to Board: ${comment}`,
+    linkUrl: `/submissions/${submission.id}`,
+  });
+}
+
+/** SMC submissions the CEO has not yet vetted either way — `ACCEPTED`/`ROUTED`, not already
+ * endorsed, and with no prior `SUBMISSION_NOT_VETTED_FOR_BOARD` decision recorded. */
+export async function listSubmissionsAwaitingCeoReview(actingUser: AuthenticatedUser) {
+  requireAnyRole(actingUser, CEO_ROLES);
+  const declined = await prisma.auditEvent.findMany({
+    where: { entityType: 'Submission', action: 'SUBMISSION_NOT_VETTED_FOR_BOARD' },
+    select: { entityId: true },
+  });
+  const declinedIds = declined
+    .map((d) => d.entityId)
+    .filter((id): id is string => id !== null && id !== undefined);
+
+  return prisma.submission.findMany({
+    where: {
+      submissionCategory: 'SMC',
+      workflowStatus: { in: ['ACCEPTED', 'ROUTED'] },
+      endorsedForBoard: false,
+      ...(declinedIds.length > 0 ? { id: { notIn: declinedIds } } : {}),
+    },
+    include: { department: true },
+    orderBy: { submittedAt: 'asc' },
+  });
 }
 
 /**
