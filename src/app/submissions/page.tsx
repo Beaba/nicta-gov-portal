@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { DateTime } from 'luxon';
-import type { Department } from '@prisma/client';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db/prisma';
 import { listActiveTemplates } from '@/lib/templates/templates';
@@ -14,13 +13,6 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { NewSubmissionModal } from '@/components/NewSubmissionModal';
 import { DocumentIcon, PaperPlaneIcon, ShieldCheckIcon } from '@/components/icons';
 
-// A SUBMITTER (Director) is expected to always belong to a department, but the field is nullable
-// at the schema/session level (some roles, e.g. CEO, have none) — guard rather than assume.
-async function loadOwnDepartment(departmentId: string | null): Promise<Department | null> {
-  if (!departmentId) return null;
-  return prisma.department.findUnique({ where: { id: departmentId } });
-}
-
 // Dates are formatted in Pacific/Port_Moresby, never the server or browser's local zone — same
 // rule as every date shown in this app (CLAUDE.md, docs/assumptions-and-decisions.md#A11).
 const formatDate = (d: Date) =>
@@ -31,14 +23,13 @@ export default async function MySubmissionsPage() {
   if (!user) redirect('/login');
   if (!user.roles.some((r) => r.roleCode === 'SUBMITTER')) redirect('/');
 
-  const [submissions, templates, department, meeting] = await Promise.all([
+  const [submissions, templates, meeting] = await Promise.all([
     prisma.submission.findMany({
       where: { createdById: user.id },
       include: { department: true, meeting: true },
       orderBy: { createdAt: 'desc' },
     }),
     listActiveTemplates(),
-    loadOwnDepartment(user.departmentId),
     getCurrentSmcMeetingWithDeadline(),
   ]);
 
@@ -56,7 +47,7 @@ export default async function MySubmissionsPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-nicta-teal-dark">Director Dashboard</h1>
-          <p className="mt-1 text-sm text-nicta-neutral-700">{department?.name ?? '—'}</p>
+          <p className="mt-1 text-sm text-nicta-neutral-700">Portal / Directors</p>
           <div className="mt-4 h-[3px] w-16 bg-nicta-sand" />
         </div>
         <NewSubmissionModal templates={templates} variant="button" />
@@ -136,17 +127,17 @@ export default async function MySubmissionsPage() {
             No templates have been approved yet.
           </p>
         ) : (
-          <div className="mt-3 flex flex-wrap gap-3">
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {templateDownloads.map((t) => (
               <a
                 key={t.id}
                 href={t.downloadUrl}
-                className="flex items-center gap-2 rounded-md border border-nicta-neutral-200 px-3 py-2 text-sm hover:bg-nicta-neutral-100"
+                className="rounded-md border border-nicta-neutral-200 p-4 text-sm hover:bg-nicta-neutral-100"
               >
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-nicta-teal-light text-nicta-teal-dark">
-                  <DocumentIcon className="h-3.5 w-3.5" />
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-nicta-teal-light text-nicta-teal-dark">
+                  <DocumentIcon className="h-4 w-4" />
                 </span>
-                <span className="font-medium text-nicta-teal-dark">{t.name}</span>
+                <span className="mt-3 block font-medium text-nicta-teal-dark">{t.name}</span>
               </a>
             ))}
           </div>

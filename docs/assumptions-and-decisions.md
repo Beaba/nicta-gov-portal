@@ -658,3 +658,39 @@ to the client alongside this entry.
   `Deadline` row created to exercise the late path were deleted afterward — nothing test-induced was
   left in the dev DB or local document store.
 - **Typecheck/lint clean throughout** (`npx tsc --noEmit`, `npx next lint`), Prettier-formatted.
+
+## A28 — Full sidebar nav rebuilt from a client-supplied Director Dashboard screenshot (2026-08-23)
+
+The client pasted a screenshot of a Director Dashboard with a much fuller left sidebar than
+`#A26`'s deliberately-2-item nav (SMC Submissions / Board Papers) and asked for it "exactly" —
+explicitly noting the extra items are "for the future", matching the original big spec's own
+instruction that future modules must stay "visible only as disabled... placeholders" rather than
+hidden. `PortalSidebar.tsx` is now grouped (Overview / Submissions / Directors Tasks / Department
+Managers / Settings) with 5 real links (My Dashboard, Notifications, SMC, Board, Sign Out — all
+either `ROLE_LANDING_PAGE` or an existing route) and 8 disabled placeholders (CEO's Approval,
+Circular Approval, Archive, Executive Delegations, Managers Delegations, Reports, Requests,
+Account) rendered as non-clickable, muted, "Soon"-tagged `<span>`s rather than the older
+`ComingSoonPage` pattern (a clickable link to a real stub route) — a deliberate change: the client's
+own wording is "disabled", and none of these 8 have any backing data model or route today, so a
+clickable stub would overclaim more than a greyed-out nav item does. Rendered identically for
+every role (same simplicity rule as `#A26`), verified via screenshot on Director, CEO, and
+Corporate Secretariat.
+
+- **`PortalSidebar` became an async Server Component** (needs the signed-in user's department name
+  for the new bottom profile strip — same one-off `prisma` call pattern `PortalHeader` already uses
+  for its notification count). The one interactive piece (the collapsible "New Submissions" group)
+  had to move into its own tiny client component, `SidebarExpandableGroup.tsx` — a Server Component
+  cannot pass a function prop (an icon component reference) across to a Client Component, only
+  serializable props/rendered JSX; hit this as a live runtime error first (`next dev`'s overlay:
+  "Functions cannot be passed directly to Client Components"), not caught by `tsc`, and fixed by
+  passing a rendered `<Icon className=.../>` node instead of the component reference.
+- **Director Dashboard's header row** (`submissions/page.tsx`) now shows a "Portal / Directors"
+  breadcrumb instead of the department name (which moved to the sidebar's new bottom profile strip,
+  so it wasn't lost, just relocated) — matches the screenshot exactly. "Approved NICTA Templates"
+  changed from a flex-wrap row of single-line pills to a 3-column grid of taller bordered cards; no
+  data change needed, since the seeded template `name`s already read
+  `"Management Report (placeholder template)"` etc. and simply wrap onto a second line at the
+  narrower card width.
+- 8 new icons added to `icons.tsx` for the new nav items (home, people, person-check, refresh,
+  archive, chart, inbox, user) — same inline-SVG-with-`currentColor` convention as the existing set,
+  no icon library dependency added.
