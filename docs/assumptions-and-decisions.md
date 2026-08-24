@@ -694,3 +694,82 @@ Corporate Secretariat.
 - 8 new icons added to `icons.tsx` for the new nav items (home, people, person-check, refresh,
   archive, chart, inbox, user) — same inline-SVG-with-`currentColor` convention as the existing set,
   no icon library dependency added.
+
+## A29 — CEO -> Director delegation workflow, role-specific CEO/Secretariat navigation (2026-08-25)
+
+The client's second large spec (roles/departments/portal-name revalidation, a full KPI/KRA model,
+CEO delegations, weekly summaries, WhatsApp notifications, distinct CEO/Secretariat sidebars, 16
+acceptance tests) was scoped the same way as the first one (`#A27`): revalidate first, then
+implement the single best-bounded, highest-value slice for real rather than attempt everything at
+once. **This pass**: (1) confirmed roles/departments/portal-name already satisfy the spec exactly —
+no changes needed, verified directly against the live DB, not assumed; (2) built distinct CEO and
+Corporate Secretariat sidebars, superseding `#A28`'s "one nav for everyone" rule for those two
+roles only, per the client's explicit "do not use one generic sidebar for all roles"; (3) built the
+CEO -> Director delegation workflow end-to-end (schema, 10-state machine, both roles' UI,
+notifications, audit trail) — the one "current priority" item in the client's list (KPI/KRA, weekly
+summaries, WhatsApp) that is fully self-contained and has a complete field/state spec, unlike the
+other three which each need their own schema hierarchy or external-provider work. **Not built this
+pass** — see the closing report delivered alongside this entry and `docs/known-limitations.md`:
+the KPI/KRA model (Corporate Strategy -> Plan -> Org KPI -> Dept KPI -> Activity -> Update ->
+Evidence -> Report, a 5-6-model hierarchy of its own), weekly summary generation, and the WhatsApp
+notification provider.
+
+- **Delegation is a new top-level model**, not bolted onto `Activity`/`Workplan` — a CEO delegation
+  has its own lifecycle, actors, and evidence, and conflating it with the Kanban/workplan module
+  (itself still mostly unbuilt UI, per `#A12`) would couple two separately-scoped features. Schema
+  additions are purely additive: a new `Delegation` model/table, a new `DelegationPriority` enum, and
+  3 nullable FK columns added to already-generic tables (`WorkflowTransition.delegationId`,
+  `Evidence.delegationId`) — no existing column was changed, matching the "don't edit an existing
+  migration" rule (`20260824224041_add_ceo_delegations`).
+- **`Delegation.status` is a free-text `String`, not a Prisma enum** — same reasoning as
+  `Submission.workflowStatus` (`#A1`): new states can be added without a migration. The state graph
+  itself (`src/lib/delegations/workflow.ts`) is a small table-driven graph copied from
+  `submissions/workflow.ts`'s exact shape (`transitionDelegation` mirrors `transitionSubmission`
+  field-for-field: validates the edge, updates the row, writes one `WorkflowTransition`, writes one
+  `AuditEvent`), not a generic workflow engine — consistent with the client's original instruction
+  against one, still in force.
+- **`OVERDUE` is a derived flag, not a stored state**, even though the client's own state list names
+  it as one of 11. No cron/scheduler infrastructure exists anywhere in this codebase to drive an
+  automatic `dueDate`-passed transition, and building one for a single field would be a
+  disproportionate addition. `isOverdue()` computes it at read time from `dueDate` and `status` —
+  identical reasoning and identical "fail open" precedent to `Submission.isLate` (`#A27`). It renders
+  as an "Overdue" pill next to the real status everywhere a delegation is shown, so the functional
+  requirement (visibility) is met without the stored-state machinery.
+- **"CEO comments" and "Director response" are not separate fields** — every comment, on either
+  side, is logged as a `WorkflowTransition` row (self-loop `fromState === toState` when the action
+  doesn't itself change status — a progress update, an extension request, a plain CEO comment), the
+  same pattern `SubmissionReview.comments`/`WorkflowTransition.comment` already establish for
+  Submissions. This satisfies "every important action must record... previous state, new state,
+  comment" even for actions that don't move the state, and keeps one single chronological history
+  per delegation instead of splitting comments across multiple fields/tables.
+- **Director-side actions gate on `SUBMITTER`** (the role already carrying the "Director" display
+  name and driving `/submissions`), not the separate `DIRECTOR` role code (display name "Department
+  Director (Workplans)", `#A4`'s comment on why the two exist). Every real, currently-staffed
+  Director account already holds both role codes (confirmed directly against the DB —
+  e.g. `rasari@nicta.gov.pg` has both `SUBMITTER` and `DIRECTOR`), so this is a no-op in practice
+  today; `SUBMITTER` was chosen because it is the code every other Director-facing authorization
+  check in this codebase already uses (`submissions.ts`, `review.ts`), keeping delegations
+  consistent with that rather than introducing a second convention.
+- **CEO and Corporate Secretariat sidebars are the client's own list, verbatim**, split into logical
+  section groups (grouping is a legibility choice, not in the client's literal instruction, but the
+  instruction doesn't forbid it and a 28-item flat list is hard to scan). Items with a real, already-
+  built destination are live links (7 for the CEO: CEO Dashboard, Notifications, SMC Submissions,
+  Board Papers, CEO Delegations, Delegation Tracking, Sign Out; 7 for the Secretariat: Secretariat
+  Dashboard, Notifications, SMC Submission Queue, Board Paper Register, Deadlines and Submission
+  Windows, Approved Templates, Sign Out) — CEO Delegations and Delegation Tracking both point at the
+  same `/delegations` list rather than inventing a second "tracking" view, since tracking is that
+  list's own purpose. Everything else (21 items on each) renders as the same disabled "Soon" pattern
+  `#A28` established, not a clickable stub — no route was created for them, honestly reflecting that
+  no backing feature exists yet, not just no page.
+- **Verified live**, not just typechecked: a throwaway Playwright script drove the real dev server
+  through the full lifecycle on real seed accounts (`ceo.demo@nicta.gov.pg` creating and issuing a
+  delegation to `rasari@nicta.gov.pg`, who acknowledged it, started work, logged a progress update,
+  and submitted it for review; the CEO then marked it Completed and Closed with a closure decision)
+  — 11/11 checks passed, including the closure-decision text and an in-portal notification reaching
+  the Director. A second script confirmed least-privilege directly: a _different_ Director
+  (`sanda@nicta.gov.pg`) navigating straight to the first Director's delegation URL was redirected
+  away with no delegation content rendered — `getDelegationForUser`'s ownership check holds. All
+  test-created `Delegation`/`WorkflowTransition`/`AuditEvent`/`Notification` rows were deleted
+  afterward; confirmed zero remaining via a direct DB count.
+- **Typecheck/lint clean throughout** (`npx tsc --noEmit`, `npx next lint`), production build
+  succeeds (`next build`), Prettier-formatted.

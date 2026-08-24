@@ -25,15 +25,16 @@ model Department {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users       User[]
-  userRoles   UserRole[]
-  workplans   Workplan[]
-  submissions Submission[]
+  users                       User[]
+  userRoles                   UserRole[]
+  workplans                   Workplan[]
+  submissions                 Submission[]
+  delegationsAsSupportingDept Delegation[] @relation("DelegationSupportingDepartment")
 }
 
 model Role {
-  id          String   @id @default(cuid())
-  code        String   @unique // MANAGER | DIRECTOR | SMC_SECRETARIAT | SMC_MEMBER | BOARD_SECRETARIAT | EXECUTIVE_VIEWER | SYSTEM_ADMIN
+  id          String  @id @default(cuid())
+  code        String  @unique // MANAGER | DIRECTOR | SMC_SECRETARIAT | SMC_MEMBER | BOARD_SECRETARIAT | EXECUTIVE_VIEWER | SYSTEM_ADMIN
   name        String
   description String?
 
@@ -72,13 +73,13 @@ model ReportingPeriod {
 // src/lib/config/paperTypes.ts keeps the fuller SMC/Board lists as the documented next-phase
 // expansion set.
 model PaperType {
-  id                     String   @id @default(cuid())
-  code                   String   @unique
+  id                     String             @id @default(cuid())
+  code                   String             @unique
   name                   String
   category               SubmissionCategory
-  isActive               Boolean  @default(true)
-  requiresRecommendation Boolean  @default(false)
-  createdAt              DateTime @default(now())
+  isActive               Boolean            @default(true)
+  requiresRecommendation Boolean            @default(false)
+  createdAt              DateTime           @default(now())
 }
 
 model Template {
@@ -96,9 +97,9 @@ model Template {
   uploadedAt    DateTime @default(now())
   uploadedById  String?
 
-  supersedesId String?    @unique
-  supersedes   Template?  @relation("TemplateVersion", fields: [supersedesId], references: [id])
-  supersededBy Template?  @relation("TemplateVersion")
+  supersedesId String?   @unique
+  supersedes   Template? @relation("TemplateVersion", fields: [supersedesId], references: [id])
+  supersededBy Template? @relation("TemplateVersion")
 
   reviewResults AIReviewResult[]
   submissions   Submission[]
@@ -109,18 +110,18 @@ model Template {
 // ---------------------------------------------------------------------------
 
 model User {
-  id            String   @id @default(cuid())
-  entraObjectId String?  @unique
-  employeeId    String?  @unique
+  id            String      @id @default(cuid())
+  entraObjectId String?     @unique
+  employeeId    String?     @unique
   name          String
-  email         String   @unique
+  email         String      @unique
   jobTitle      String?
   departmentId  String?
   department    Department? @relation(fields: [departmentId], references: [id])
-  isActive      Boolean  @default(true)
-  isDemoUser    Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  isActive      Boolean     @default(true)
+  isDemoUser    Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   roles                        UserRole[]
   responsibleActivities        Activity[]
@@ -133,6 +134,9 @@ model User {
   evidenceUploaded             Evidence[]
   auditEvents                  AuditEvent[]
   notifications                Notification[]
+  delegationsCreated           Delegation[]     @relation("DelegationCreatedBy")
+  delegationsAsDirector        Delegation[]     @relation("DelegationDirector")
+  delegationsAsSupportingMgr   Delegation[]     @relation("DelegationSupportingManager")
 }
 
 model UserRole {
@@ -159,22 +163,22 @@ enum WorkplanApprovalStatus {
 }
 
 model Workplan {
-  id                     String   @id @default(cuid())
+  id                     String                 @id @default(cuid())
   financialYear          String
   departmentId           String
-  department             Department          @relation(fields: [departmentId], references: [id])
+  department             Department             @relation(fields: [departmentId], references: [id])
   title                  String
   strategicObjectiveId   String?
-  strategicObjective     StrategicObjective? @relation(fields: [strategicObjectiveId], references: [id])
+  strategicObjective     StrategicObjective?    @relation(fields: [strategicObjectiveId], references: [id])
   corporatePlanReference String?
   directorId             String?
-  director               User?               @relation("WorkplanDirector", fields: [directorId], references: [id])
+  director               User?                  @relation("WorkplanDirector", fields: [directorId], references: [id])
   managerId              String?
-  manager                User?               @relation("WorkplanManager", fields: [managerId], references: [id])
+  manager                User?                  @relation("WorkplanManager", fields: [managerId], references: [id])
   reportingPeriod        String // e.g. "Quarterly" — free label, actual periods are ReportingPeriod rows
   approvalStatus         WorkplanApprovalStatus @default(DRAFT)
-  version                Int      @default(1)
-  createdAt              DateTime @default(now())
+  version                Int                    @default(1)
+  createdAt              DateTime               @default(now())
   approvedAt             DateTime?
 
   activities Activity[]
@@ -203,10 +207,10 @@ enum KanbanStage {
 }
 
 model Activity {
-  id                   String    @id @default(cuid())
-  referenceNumber      String    @unique
+  id                   String              @id @default(cuid())
+  referenceNumber      String              @unique
   workplanId           String
-  workplan             Workplan  @relation(fields: [workplanId], references: [id])
+  workplan             Workplan            @relation(fields: [workplanId], references: [id])
   title                String
   description          String?
   strategicObjectiveId String?
@@ -217,21 +221,21 @@ model Activity {
   baseline             String?
   startDate            DateTime?
   dueDate              DateTime?
-  priority             ActivityPriority @default(MEDIUM)
+  priority             ActivityPriority    @default(MEDIUM)
   responsibleOfficerId String?
-  responsibleOfficer   User?      @relation(fields: [responsibleOfficerId], references: [id])
+  responsibleOfficer   User?               @relation(fields: [responsibleOfficerId], references: [id])
   supportingOfficers   String? // free text list of names — see assumptions-and-decisions.md#A6
-  percentComplete      Int        @default(0)
-  status               KanbanStage @default(NOT_STARTED)
-  budgetAllocation     Decimal?   @db.Decimal(14, 2)
-  actualExpenditure    Decimal?   @db.Decimal(14, 2)
+  percentComplete      Int                 @default(0)
+  status               KanbanStage         @default(NOT_STARTED)
+  budgetAllocation     Decimal?            @db.Decimal(14, 2)
+  actualExpenditure    Decimal?            @db.Decimal(14, 2)
   dependencies         String?
   risksIssues          String?
   mitigation           String?
   latestAchievement    String?
   nextAction           String?
-  createdAt            DateTime   @default(now())
-  lastUpdatedAt         DateTime  @updatedAt
+  createdAt            DateTime            @default(now())
+  lastUpdatedAt        DateTime            @updatedAt
 
   updates     ActivityUpdate[]
   evidence    Evidence[]
@@ -245,9 +249,9 @@ enum ReviewStatus {
 }
 
 model ActivityUpdate {
-  id                    String   @id @default(cuid())
+  id                    String          @id @default(cuid())
   activityId            String
-  activity              Activity @relation(fields: [activityId], references: [id])
+  activity              Activity        @relation(fields: [activityId], references: [id])
   reportingPeriodId     String
   reportingPeriod       ReportingPeriod @relation(fields: [reportingPeriodId], references: [id])
   progressPercent       Int
@@ -260,14 +264,14 @@ model ActivityUpdate {
   nextPeriodActions     String?
   supportRequired       String?
   submittedById         String
-  submittedBy           User     @relation(fields: [submittedById], references: [id])
-  submittedAt           DateTime @default(now())
-  directorReviewStatus  ReviewStatus @default(PENDING)
+  submittedBy           User            @relation(fields: [submittedById], references: [id])
+  submittedAt           DateTime        @default(now())
+  directorReviewStatus  ReviewStatus    @default(PENDING)
   directorReviewComment String?
   reviewedById          String?
   reviewedAt            DateTime?
-  version               Int      @default(1)
-  supersedesId          String?  @unique
+  version               Int             @default(1)
+  supersedesId          String?         @unique
   supersedes            ActivityUpdate? @relation("UpdateVersion", fields: [supersedesId], references: [id])
   supersededBy          ActivityUpdate? @relation("UpdateVersion")
 
@@ -297,22 +301,24 @@ enum EvidenceRole {
 }
 
 model Evidence {
-  id               String    @id @default(cuid())
+  id               String          @id @default(cuid())
   fileName         String
   storageKey       String
   contentType      String
   sizeBytes        Int
   uploadedById     String
-  uploadedBy       User      @relation(fields: [uploadedById], references: [id])
-  uploadedAt       DateTime  @default(now())
+  uploadedBy       User            @relation(fields: [uploadedById], references: [id])
+  uploadedAt       DateTime        @default(now())
   activityId       String?
-  activity         Activity? @relation(fields: [activityId], references: [id])
+  activity         Activity?       @relation(fields: [activityId], references: [id])
   activityUpdateId String?
   activityUpdate   ActivityUpdate? @relation(fields: [activityUpdateId], references: [id])
   submissionId     String?
-  submission       Submission? @relation(fields: [submissionId], references: [id])
-  role             EvidenceRole @default(OTHER)
-  scanStatus       ScanStatus @default(PENDING)
+  submission       Submission?     @relation(fields: [submissionId], references: [id])
+  delegationId     String?
+  delegation       Delegation?     @relation(fields: [delegationId], references: [id])
+  role             EvidenceRole    @default(OTHER)
+  scanStatus       ScanStatus      @default(PENDING)
 }
 
 // ---------------------------------------------------------------------------
@@ -353,12 +359,12 @@ enum MeetingStatus {
 }
 
 model Meeting {
-  id            String   @id @default(cuid())
+  id            String        @id @default(cuid())
   meetingType   MeetingType
   title         String
   meetingNumber String
   meetingDate   DateTime
-  timezone      String   @default("Pacific/Port_Moresby")
+  timezone      String        @default("Pacific/Port_Moresby")
   status        MeetingStatus @default(SCHEDULED)
 
   deadline    Deadline?
@@ -367,16 +373,16 @@ model Meeting {
 }
 
 model Deadline {
-  id                       String   @id @default(cuid())
-  meetingId                String   @unique
-  meeting                  Meeting  @relation(fields: [meetingId], references: [id])
-  submissionOpenAt         DateTime
-  normalCloseAt            DateTime
-  lateCloseAt              DateTime
-  timezone                 String   @default("Pacific/Port_Moresby")
-  permittedPaperTypes      String // JSON-encoded string[] — see assumptions-and-decisions.md#A9
-  requiredReviewers        String? // JSON-encoded string[]
-  reminderScheduleNote     String? // free text describing reminder offsets (e.g. "T-7d, T-2d, T-1d")
+  id                   String   @id @default(cuid())
+  meetingId            String   @unique
+  meeting              Meeting  @relation(fields: [meetingId], references: [id])
+  submissionOpenAt     DateTime
+  normalCloseAt        DateTime
+  lateCloseAt          DateTime
+  timezone             String   @default("Pacific/Port_Moresby")
+  permittedPaperTypes  String // JSON-encoded string[] — see assumptions-and-decisions.md#A9
+  requiredReviewers    String? // JSON-encoded string[]
+  reminderScheduleNote String? // free text describing reminder offsets (e.g. "T-7d, T-2d, T-1d")
 }
 
 // ---------------------------------------------------------------------------
@@ -408,22 +414,22 @@ enum ConfidentialityLevel {
 }
 
 model Submission {
-  id                       String   @id @default(cuid())
-  referenceNumber          String   @unique
+  id                       String               @id @default(cuid())
+  referenceNumber          String               @unique
   submissionCategory       SubmissionCategory
   paperType                String // validated against config list per category — see src/lib/config/paperTypes.ts
   title                    String
   departmentId             String
-  department               Department @relation(fields: [departmentId], references: [id])
+  department               Department           @relation(fields: [departmentId], references: [id])
   createdById              String // Milestone 1 Submitter — owns "My Submissions" listing and edit/resubmit rights, see #A14
-  createdBy                User     @relation("SubmissionCreatedBy", fields: [createdById], references: [id])
-  currentVersion           Int      @default(1) // mirrors versions.length, kept denormalized for quick list/detail display
+  createdBy                User                 @relation("SubmissionCreatedBy", fields: [createdById], references: [id])
+  currentVersion           Int                  @default(1) // mirrors versions.length, kept denormalized for quick list/detail display
   sponsoringDirectorId     String?
-  sponsoringDirector       User?    @relation("SubmissionSponsorDirector", fields: [sponsoringDirectorId], references: [id])
+  sponsoringDirector       User?                @relation("SubmissionSponsorDirector", fields: [sponsoringDirectorId], references: [id])
   responsibleManagerId     String?
-  responsibleManager       User?    @relation("SubmissionSponsorManager", fields: [responsibleManagerId], references: [id])
+  responsibleManager       User?                @relation("SubmissionSponsorManager", fields: [responsibleManagerId], references: [id])
   meetingId                String?
-  meeting                  Meeting? @relation(fields: [meetingId], references: [id])
+  meeting                  Meeting?             @relation(fields: [meetingId], references: [id])
   confidentiality          ConfidentialityLevel @default(INTERNAL)
   purpose                  String?
   executiveSummary         String?
@@ -437,7 +443,7 @@ model Submission {
   previousReferences       String?
   proposedResolution       String? // required before submission for Board Decision Papers — enforced in code
   workflowStatus           String // see src/lib/workflow/{smc,board}Workflow.ts for the state machine
-  isLate                   Boolean  @default(false)
+  isLate                   Boolean              @default(false)
   lateJustification        String?
   lateCannotWaitReason     String?
   lateOperationalImpact    String?
@@ -446,34 +452,34 @@ model Submission {
   lateExceptionApprovedAt  DateTime?
   sourceWorkplanId         String?
   sourceManagementReportId String?
-  smcSourceSubmissionId    String?  @unique
-  smcSourceSubmission      Submission? @relation("SmcToBoard", fields: [smcSourceSubmissionId], references: [id])
-  boardSubmission          Submission? @relation("SmcToBoard")
+  smcSourceSubmissionId    String?              @unique
+  smcSourceSubmission      Submission?          @relation("SmcToBoard", fields: [smcSourceSubmissionId], references: [id])
+  boardSubmission          Submission?          @relation("SmcToBoard")
   // Milestone 1 fields — see docs/milestone-1-plan.md and #A14.
   mainDocumentStorageKey   String? // the Evidence(role: MAIN_PAPER) storageKey, denormalized for quick lookup
   mainDocumentFileName     String?
   generatedDraftStorageKey String? // set only if a templated draft was generated; never replaces mainDocumentStorageKey
   templateId               String?
-  template                 Template? @relation(fields: [templateId], references: [id])
+  template                 Template?            @relation(fields: [templateId], references: [id])
   routingFolderKey         String? // computed destination folder, confirmed/recorded when ACCEPTED -> ROUTED
   routedAt                 DateTime?
   // SEMC's decision that this paper should proceed to Board — see docs/mvp-directors-portal-plan.md#A18.
   // This is NOT the Board paper itself: it only unlocks the Director's ability to submit one (a
   // separate Submission, category BOARD, linked via smcSourceSubmissionId below). Independent of
   // the ACCEPTED -> ROUTED -> CLOSED chain above — not a competing state.
-  endorsedForBoard         Boolean  @default(false)
+  endorsedForBoard         Boolean              @default(false)
   endorsedForBoardAt       DateTime?
   endorsedForBoardById     String?
   submittedAt              DateTime?
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
 
-  versions       SubmissionVersion[]
-  annexures      SubmissionAnnexure[]
-  reviews        SubmissionReview[]
-  decisions      Decision[]
-  evidence       Evidence[]
-  transitions    WorkflowTransition[]
+  versions        SubmissionVersion[]
+  annexures       SubmissionAnnexure[]
+  reviews         SubmissionReview[]
+  decisions       Decision[]
+  evidence        Evidence[]
+  transitions     WorkflowTransition[]
   aiReviewResults AIReviewResult[]
   actionItems     ActionItem[]
 }
@@ -511,11 +517,13 @@ model SubmissionReview {
 
 model WorkflowTransition {
   id            String      @id @default(cuid())
-  entityType    String // Activity | Submission
+  entityType    String // Activity | Submission | Delegation
   activityId    String?
   activity      Activity?   @relation(fields: [activityId], references: [id])
   submissionId  String?
   submission    Submission? @relation(fields: [submissionId], references: [id])
+  delegationId  String?
+  delegation    Delegation? @relation(fields: [delegationId], references: [id])
   fromState     String
   toState       String
   performedById String
@@ -524,11 +532,11 @@ model WorkflowTransition {
 }
 
 model Decision {
-  id           String   @id @default(cuid())
+  id           String     @id @default(cuid())
   submissionId String
   submission   Submission @relation(fields: [submissionId], references: [id])
   meetingId    String
-  meeting      Meeting  @relation(fields: [meetingId], references: [id])
+  meeting      Meeting    @relation(fields: [meetingId], references: [id])
   decisionType String // Noted | Endorsed | Deferred | Rejected | EndorsedForBoard | Approved | ReferredBack | Closed
   decisionDate DateTime
   recordedById String
@@ -555,19 +563,64 @@ enum ActionItemStatus {
 }
 
 model ActionItem {
-  id           String   @id @default(cuid())
+  id           String           @id @default(cuid())
   decisionId   String?
-  decision     Decision?   @relation(fields: [decisionId], references: [id])
+  decision     Decision?        @relation(fields: [decisionId], references: [id])
   // Direct link so the CEO/Corporate Secretary can attach an action item straight to a paper
   // without first recording a formal Decision — see docs/mvp-directors-portal-plan.md#A18.
   submissionId String?
-  submission   Submission? @relation(fields: [submissionId], references: [id])
+  submission   Submission?      @relation(fields: [submissionId], references: [id])
   createdById  String?
   description  String
   ownerId      String?
   dueDate      DateTime?
   status       ActionItemStatus @default(OPEN)
-  createdAt    DateTime @default(now())
+  createdAt    DateTime         @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// CEO delegations (CEO -> Director only — see docs/assumptions-and-decisions.md#A29
+// for why Director-to-Manager delegation chains are explicitly out of this milestone)
+// ---------------------------------------------------------------------------
+
+enum DelegationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Delegation {
+  id                     String               @id @default(cuid())
+  referenceNumber        String               @unique
+  title                  String
+  description            String
+  responsibleDirectorId  String
+  responsibleDirector    User                 @relation("DelegationDirector", fields: [responsibleDirectorId], references: [id])
+  supportingDepartmentId String?
+  supportingDepartment   Department?          @relation("DelegationSupportingDepartment", fields: [supportingDepartmentId], references: [id])
+  supportingManagerId    String?
+  supportingManager      User?                @relation("DelegationSupportingManager", fields: [supportingManagerId], references: [id])
+  priority               DelegationPriority   @default(MEDIUM)
+  startDate              DateTime
+  dueDate                DateTime
+  expectedOutcome        String
+  requiredEvidence       String?
+  confidentiality        ConfidentialityLevel @default(INTERNAL)
+  // See src/lib/delegations/workflow.ts for the state graph. Free-text String, not an enum, for the
+  // same reason as Submission.workflowStatus (#A1) — new states can be added without a migration.
+  status                 String               @default("DRAFT")
+  createdById            String
+  createdBy              User                 @relation("DelegationCreatedBy", fields: [createdById], references: [id])
+  issuedAt               DateTime?
+  acknowledgedAt         DateTime?
+  closedAt               DateTime?
+  closureDecision        String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+
+  evidence    Evidence[]
+  transitions WorkflowTransition[]
 }
 
 // ---------------------------------------------------------------------------
@@ -612,20 +665,20 @@ enum AIReviewOverallResult {
 }
 
 model AIReviewResult {
-  id                  String   @id @default(cuid())
-  submissionId        String
-  submission          Submission @relation(fields: [submissionId], references: [id])
-  templateId          String?
-  template            Template? @relation(fields: [templateId], references: [id])
-  overallResult       AIReviewOverallResult
-  missingSections     String // JSON string[]
-  warnings            String // JSON string[]
+  id                   String                @id @default(cuid())
+  submissionId         String
+  submission           Submission            @relation(fields: [submissionId], references: [id])
+  templateId           String?
+  template             Template?             @relation(fields: [templateId], references: [id])
+  overallResult        AIReviewOverallResult
+  missingSections      String // JSON string[]
+  warnings             String // JSON string[]
   suggestedCorrections String // JSON string[]
-  sourceReferences    String? // JSON string[] — e.g. section/heading names the findings cite
-  reviewedAt          DateTime @default(now())
-  providerMode        String // mock | internal — see src/lib/providers/aiReview/interface.ts
-  modelIdentifier     String? // set only when providerMode = internal
-  humanReviewStatus   String   @default("PENDING") // PENDING | ACKNOWLEDGED — reviewer has seen these findings
+  sourceReferences     String? // JSON string[] — e.g. section/heading names the findings cite
+  reviewedAt           DateTime              @default(now())
+  providerMode         String // mock | internal — see src/lib/providers/aiReview/interface.ts
+  modelIdentifier      String? // set only when providerMode = internal
+  humanReviewStatus    String                @default("PENDING") // PENDING | ACKNOWLEDGED — reviewer has seen these findings
 }
 
 model AIGenerationRecord {

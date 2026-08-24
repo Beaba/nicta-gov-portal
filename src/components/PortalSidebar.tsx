@@ -16,15 +16,20 @@ import {
   InboxIcon,
   UserIcon,
   SignOutIcon,
+  CalendarIcon,
+  ClockIcon,
+  ShieldCheckIcon,
+  SearchIcon,
+  AlertTriangleIcon,
+  SettingsIcon,
 } from '@/components/icons';
 
-// Full nav structure the client asked for (2026-08-23), including the sections that belong to
-// modules this MVP doesn't build yet (Delegations, Manager reporting, Archive, Circular/CEO's
-// Approval routing, Account) — per the client's own instruction that future modules must be
-// "visible only as disabled... placeholders", not hidden, so the eventual shape of the app is
-// legible now. Rendered the same for every role, matching #A26's existing "sidebar doesn't vary
-// by role" simplicity — only "My Dashboard"/"SMC" (both ROLE_LANDING_PAGE) and "Board Papers"
-// carry a working href today.
+// #A29 (2026-08-25): the client's spec explicitly requires CEO and Corporate Secretariat to have
+// their own distinct navigation — "Do not use one generic sidebar for all roles" — superseding
+// #A28's "same nav for everyone" simplicity for those two roles specifically. Director/Manager/
+// Board/Admin keep #A28's nav (DefaultNav below) since the client gave no distinct list for them
+// this round. Every list below is exactly the client's own item names/order; items with no backing
+// route/feature render as disabled "Soon" placeholders rather than being silently dropped.
 export async function PortalSidebar({
   user,
   active,
@@ -36,8 +41,9 @@ export async function PortalSidebar({
     user.roles.some((r) => r.roleCode === role),
   );
   const primaryHref = primaryRole ? ROLE_LANDING_PAGE[primaryRole] : '/submissions';
-  const isBoardPapersActive = active === 'board-papers';
-  const isDashboardActive = !isBoardPapersActive;
+  const isCeo = user.roles.some((r) => r.roleCode === 'EXECUTIVE_VIEWER');
+  const isSecretariat = user.roles.some((r) => r.roleCode === 'REVIEWER_SECRETARIAT');
+  const isDirector = user.roles.some((r) => r.roleCode === 'SUBMITTER');
 
   const [department, portalRoleName] = await Promise.all([
     user.departmentId
@@ -61,90 +67,13 @@ export async function PortalSidebar({
       <SidebarPattern />
 
       <ul className="relative z-10 space-y-1">
-        <SectionLabel>Overview</SectionLabel>
-        <li>
-          <SidebarLink
-            href={primaryHref}
-            label="My Dashboard"
-            icon={HomeIcon}
-            active={isDashboardActive}
-          />
-        </li>
-        <li>
-          <SidebarLink
-            href="/notifications"
-            label="Notifications"
-            icon={BellIcon}
-            active={active === 'notifications'}
-          />
-        </li>
-
-        <SectionLabel>Submissions</SectionLabel>
-        <SidebarExpandableGroup
-          label="New Submissions"
-          icon={<DocumentIcon className="h-4 w-4 shrink-0" />}
-          defaultOpen
-        >
-          <li>
-            <SidebarLink
-              href={primaryHref}
-              label="SMC"
-              icon={PaperPlaneIcon}
-              active={false}
-              compact
-            />
-          </li>
-          <li>
-            <SidebarLink
-              href="/board-papers"
-              label="Board"
-              icon={PeopleIcon}
-              active={isBoardPapersActive}
-              compact
-            />
-          </li>
-          <li>
-            <DisabledSidebarLink label="CEO's Approval" icon={PersonCheckIcon} compact />
-          </li>
-          <li>
-            <DisabledSidebarLink label="Circular Approval" icon={RefreshIcon} compact />
-          </li>
-        </SidebarExpandableGroup>
-        <li>
-          <DisabledSidebarLink label="Archive" icon={ArchiveIcon} />
-        </li>
-
-        <SectionLabel>Directors Tasks</SectionLabel>
-        <li>
-          <DisabledSidebarLink label="Executive Delegations" icon={PeopleIcon} />
-        </li>
-        <li>
-          <DisabledSidebarLink label="Managers Delegations" icon={PeopleIcon} />
-        </li>
-
-        <SectionLabel>Department Managers</SectionLabel>
-        <li>
-          <DisabledSidebarLink label="Reports" icon={ChartIcon} />
-        </li>
-        <li>
-          <DisabledSidebarLink label="Requests" icon={InboxIcon} />
-        </li>
-
-        <SectionLabel>Settings</SectionLabel>
-        <li>
-          <DisabledSidebarLink label="Account" icon={UserIcon} />
-        </li>
-        <li>
-          <form action="/api/auth/signout" method="POST">
-            <button
-              type="submit"
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              <SignOutIcon className="h-4 w-4 shrink-0" />
-              Sign Out
-            </button>
-          </form>
-        </li>
+        {isCeo ? (
+          <CeoNav active={active} />
+        ) : isSecretariat ? (
+          <SecretariatNav active={active} />
+        ) : (
+          <DefaultNav primaryHref={primaryHref} active={active} isDirector={isDirector} />
+        )}
       </ul>
 
       <div className="relative z-10 mt-6 border-t border-white/10 pt-4">
@@ -161,6 +90,406 @@ export async function PortalSidebar({
         </div>
       </div>
     </nav>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Director / Manager / Board / Admin — #A28's original nav, unchanged except
+// "Executive Delegations" is now a real link for Directors (SUBMITTER), since #A29 builds the
+// CEO -> Director delegation workflow those Directors act on.
+// ---------------------------------------------------------------------------
+function DefaultNav({
+  primaryHref,
+  active,
+  isDirector,
+}: {
+  primaryHref: string;
+  active?: string;
+  isDirector: boolean;
+}) {
+  const isBoardPapersActive = active === 'board-papers';
+  const isDashboardActive = !isBoardPapersActive;
+
+  return (
+    <>
+      <SectionLabel>Overview</SectionLabel>
+      <li>
+        <SidebarLink
+          href={primaryHref}
+          label="My Dashboard"
+          icon={HomeIcon}
+          active={isDashboardActive}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/notifications"
+          label="Notifications"
+          icon={BellIcon}
+          active={active === 'notifications'}
+        />
+      </li>
+
+      <SectionLabel>Submissions</SectionLabel>
+      <SidebarExpandableGroup
+        label="New Submissions"
+        icon={<DocumentIcon className="h-4 w-4 shrink-0" />}
+        defaultOpen
+      >
+        <li>
+          <SidebarLink
+            href={primaryHref}
+            label="SMC"
+            icon={PaperPlaneIcon}
+            active={false}
+            compact
+          />
+        </li>
+        <li>
+          <SidebarLink
+            href="/board-papers"
+            label="Board"
+            icon={PeopleIcon}
+            active={isBoardPapersActive}
+            compact
+          />
+        </li>
+        <li>
+          <DisabledSidebarLink label="CEO's Approval" icon={PersonCheckIcon} compact />
+        </li>
+        <li>
+          <DisabledSidebarLink label="Circular Approval" icon={RefreshIcon} compact />
+        </li>
+      </SidebarExpandableGroup>
+      <li>
+        <DisabledSidebarLink label="Archive" icon={ArchiveIcon} />
+      </li>
+
+      <SectionLabel>Directors Tasks</SectionLabel>
+      <li>
+        {isDirector ? (
+          <SidebarLink
+            href="/delegations"
+            label="Executive Delegations"
+            icon={PeopleIcon}
+            active={active === 'delegations'}
+          />
+        ) : (
+          <DisabledSidebarLink label="Executive Delegations" icon={PeopleIcon} />
+        )}
+      </li>
+      <li>
+        <DisabledSidebarLink label="Managers Delegations" icon={PeopleIcon} />
+      </li>
+
+      <SectionLabel>Department Managers</SectionLabel>
+      <li>
+        <DisabledSidebarLink label="Reports" icon={ChartIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Requests" icon={InboxIcon} />
+      </li>
+
+      <SectionLabel>Settings</SectionLabel>
+      <li>
+        <DisabledSidebarLink label="Account" icon={UserIcon} />
+      </li>
+      <li>
+        <SignOutButton />
+      </li>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CEO — #A29. Real links: CEO Dashboard, Notifications, SMC Submissions, Board Papers,
+// CEO Delegations, Delegation Tracking (both point at /delegations — "tracking" is that same
+// list's own purpose, not a separate report), Sign Out. Everything else has no backing module yet.
+// ---------------------------------------------------------------------------
+function CeoNav({ active }: { active?: string }) {
+  return (
+    <>
+      <SectionLabel>Overview</SectionLabel>
+      <li>
+        <SidebarLink
+          href="/executive-dashboard"
+          label="CEO Dashboard"
+          icon={HomeIcon}
+          active={active !== 'board-papers' && active !== 'delegations'}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/notifications"
+          label="Notifications"
+          icon={BellIcon}
+          active={active === 'notifications'}
+        />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Executive Action Centre" icon={SearchIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Risk and Issues Overview" icon={AlertTriangleIcon} />
+      </li>
+
+      <SectionLabel>Performance</SectionLabel>
+      <li>
+        <DisabledSidebarLink label="Organisational KPIs" icon={ChartIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Corporate Strategy" icon={DocumentIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Corporate Plan Progress" icon={ChartIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Department Performance" icon={ChartIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Director Performance" icon={PeopleIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Management Reports" icon={DocumentIcon} />
+      </li>
+
+      <SectionLabel>SMC &amp; Board</SectionLabel>
+      <li>
+        <SidebarLink
+          href="/executive-dashboard"
+          label="SMC Submissions"
+          icon={PaperPlaneIcon}
+          active={false}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/board-papers"
+          label="Board Papers"
+          icon={ShieldCheckIcon}
+          active={active === 'board-papers'}
+        />
+      </li>
+      <li>
+        <DisabledSidebarLink label="CEO Comments" icon={PersonCheckIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Board Decisions and Resolutions" icon={ShieldCheckIcon} />
+      </li>
+
+      <SectionLabel>Delegations</SectionLabel>
+      <li>
+        <SidebarLink
+          href="/delegations"
+          label="CEO Delegations"
+          icon={PeopleIcon}
+          active={active === 'delegations'}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/delegations"
+          label="Delegation Tracking"
+          icon={ChartIcon}
+          active={false}
+        />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Director Responses" icon={PersonCheckIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Overdue Executive Actions" icon={AlertTriangleIcon} />
+      </li>
+
+      <SectionLabel>Calendar</SectionLabel>
+      <li>
+        <DisabledSidebarLink label="SMC Calendar" icon={CalendarIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Board Calendar" icon={CalendarIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Board Agenda" icon={DocumentIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Board Archive" icon={ArchiveIcon} />
+      </li>
+
+      <SectionLabel>Reports</SectionLabel>
+      <li>
+        <DisabledSidebarLink label="Executive Performance Reports" icon={ChartIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="KPI/KRA Reports" icon={ChartIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Department Status Reports" icon={ChartIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Delegation Reports" icon={ChartIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Board Pipeline Reports" icon={ChartIcon} />
+      </li>
+
+      <SectionLabel>Settings</SectionLabel>
+      <li>
+        <DisabledSidebarLink label="Settings" icon={SettingsIcon} />
+      </li>
+      <li>
+        <SignOutButton />
+      </li>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Corporate Secretariat — #A29. Real links: Secretariat Dashboard, Notifications, SMC Submission
+// Queue, Board Paper Register, Deadlines and Submission Windows, Approved Templates (all existing
+// /review-queue, /board-papers, /admin, /admin/templates routes), Sign Out.
+// ---------------------------------------------------------------------------
+function SecretariatNav({ active }: { active?: string }) {
+  return (
+    <>
+      <SectionLabel>Overview</SectionLabel>
+      <li>
+        <SidebarLink
+          href="/review-queue"
+          label="Secretariat Dashboard"
+          icon={HomeIcon}
+          active={active !== 'board-papers'}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/notifications"
+          label="Notifications"
+          icon={BellIcon}
+          active={active === 'notifications'}
+        />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Pending Actions" icon={SearchIcon} />
+      </li>
+
+      <SectionLabel>Calendar</SectionLabel>
+      <li>
+        <DisabledSidebarLink label="SMC Calendar" icon={CalendarIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Board Calendar" icon={CalendarIcon} />
+      </li>
+
+      <SectionLabel>SMC &amp; Board</SectionLabel>
+      <li>
+        <SidebarLink
+          href="/review-queue"
+          label="SMC Submission Queue"
+          icon={PaperPlaneIcon}
+          active={false}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/board-papers"
+          label="Board Paper Register"
+          icon={ShieldCheckIcon}
+          active={active === 'board-papers'}
+        />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Board Agenda and Pack" icon={DocumentIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="CEO Review Queue" icon={PersonCheckIcon} />
+      </li>
+
+      <SectionLabel>Governance Admin</SectionLabel>
+      <li>
+        <DisabledSidebarLink label="Circulars" icon={RefreshIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Delegations" icon={PeopleIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Requests" icon={InboxIcon} />
+      </li>
+      <li>
+        <SidebarLink
+          href="/admin"
+          label="Deadlines and Submission Windows"
+          icon={ClockIcon}
+          active={false}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/admin/templates"
+          label="Approved Templates"
+          icon={DocumentIcon}
+          active={false}
+        />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Paper Standards and Guidance" icon={DocumentIcon} />
+      </li>
+
+      <SectionLabel>Records &amp; Archive</SectionLabel>
+      <li>
+        <DisabledSidebarLink label="Meeting Minutes" icon={DocumentIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Board Resolutions" icon={ShieldCheckIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="SMC Decisions" icon={ShieldCheckIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Board Archive" icon={ArchiveIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Document Register" icon={DocumentIcon} />
+      </li>
+
+      <SectionLabel>Reports</SectionLabel>
+      <li>
+        <DisabledSidebarLink label="Submission Status Reports" icon={ChartIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Late Submission Reports" icon={ClockIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Board Pipeline Reports" icon={ChartIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Delegation Reports" icon={ChartIcon} />
+      </li>
+      <li>
+        <DisabledSidebarLink label="Department Reporting Compliance" icon={ChartIcon} />
+      </li>
+
+      <SectionLabel>Settings</SectionLabel>
+      <li>
+        <DisabledSidebarLink label="Settings" icon={SettingsIcon} />
+      </li>
+      <li>
+        <SignOutButton />
+      </li>
+    </>
+  );
+}
+
+function SignOutButton() {
+  return (
+    <form action="/api/auth/signout" method="POST">
+      <button
+        type="submit"
+        className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+      >
+        <SignOutIcon className="h-4 w-4 shrink-0" />
+        Sign Out
+      </button>
+    </form>
   );
 }
 
@@ -198,10 +527,10 @@ function SidebarLink({
   );
 }
 
-// Future-module nav item — client requirement (2026-08-23): visible so the app's eventual shape
-// is legible, but not clickable and visually muted with a "Soon" tag rather than a working link
-// to a stub page (a deliberate change from the older ComingSoonPage pattern used for other roles'
-// primary landing pages — see docs/known-limitations.md for what each of these still needs).
+// Future-module nav item — client requirement: visible so the app's eventual shape is legible, but
+// not clickable and visually muted with a "Soon" tag rather than a working link to a stub page (a
+// deliberate change from the older ComingSoonPage pattern used for other roles' primary landing
+// pages — see docs/known-limitations.md for what each of these still needs).
 function DisabledSidebarLink({
   label,
   icon: Icon,

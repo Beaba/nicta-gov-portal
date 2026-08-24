@@ -106,3 +106,27 @@ both Director and Corporate Services Director roles could use it.
   entries above) already routes by year/meeting/on-time-vs-late/department; the client's fuller spec
   additionally wants submission stage, paper type, and a distinct final/archive folder as explicit
   dimensions — not built yet.
+- **No KPI/KRA model exists.** `#A29`'s spec describes a full hierarchy (Corporate Strategy ->
+  Corporate Plan -> Organisational KPI/KRA -> Department KPI/KRA -> Workplan Activity -> Weekly
+  Update -> Evidence -> Executive Report) with RAG status, baselines/targets, and dashboards scoped
+  per role (Manager/Director/CEO/Secretariat). `StrategicObjective` and `Activity` already exist in
+  the schema (`#A5`/`#A7`-era foundations for a later workplan module) but there is no `KPI`/`KRA`
+  model, no RAG computation, and no dashboard reading them — this is a 5-6-model schema addition and
+  the single largest deferred item from `#A29`, recommended as the next milestone.
+- **No weekly summary generation.** `#A29`'s spec asks for configurable start/mid/end-of-week
+  summaries (CEO -> Director, Director -> Manager) generated "from actual portal records only" and
+  shown both in-portal and via notification. No scheduling/cron infrastructure exists in this
+  codebase to generate them on a cadence; building this needs (a) a job runner or scheduled route,
+  and (b) query logic to assemble each summary from `Submission`/`Delegation`/(future) KPI records.
+- **No WhatsApp notification provider.** `NotificationProvider` (`src/lib/providers/notifications/`)
+  already has the exact shape `#A29`'s spec asks for (a provider interface, a mock implementation,
+  delivery recorded) — extending it with a `WhatsAppNotificationProvider` (real: Business API behind
+  `NOTIFICATION_PROVIDER=whatsapp`; mock: logs to the existing outbox pattern) is additive, no new
+  architecture needed. Not built this pass since it's an external integration with no available
+  credentials, matching the client's own fallback instruction to keep the workflow testable without
+  one — deferred, not blocking.
+- **CEO delegations are CEO -> Director only** (`#A29`), matching the client's own explicit scope
+  line ("Do not fully implement... Executive Delegations beyond the CEO-to-Director workflow").
+  There is no Director -> Manager delegation chain, no delegation evidence upload UI yet (the schema
+  supports it — `Evidence.delegationId` — but no upload form calls it), and no automatic `OVERDUE`
+  transition (computed at read time instead — see `#A29`'s decision log entry for why).
