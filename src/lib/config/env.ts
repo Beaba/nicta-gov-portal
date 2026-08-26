@@ -28,7 +28,9 @@ const envSchema = z.object({
   INTERNAL_AI_MODEL_NAME: z.string().optional(),
   INTERNAL_AI_API_KEY: z.string().optional(),
 
-  NOTIFICATION_PROVIDER: z.enum(['mock', 'graph']).default('mock'),
+  NOTIFICATION_PROVIDER: z.enum(['mock', 'graph', 'whatsapp']).default('mock'),
+  WHATSAPP_BUSINESS_API_TOKEN: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
 
   DEFAULT_TIMEZONE: z.string().default('Pacific/Port_Moresby'),
 });

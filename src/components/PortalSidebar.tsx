@@ -48,7 +48,7 @@ export async function PortalSidebar({
     (r) => r.roleCode === 'BOARD_MEMBER' || r.roleCode === 'BOARD_SECRETARIAT',
   );
 
-  const [department, portalRoleName] = await Promise.all([
+  const [department, portalRoleName, ceoApprovalCount, boardApprovalCount] = await Promise.all([
     user.departmentId
       ? prisma.department.findUnique({ where: { id: user.departmentId } })
       : Promise.resolve(null),
@@ -64,6 +64,10 @@ export async function PortalSidebar({
         ].includes(r.roleCode),
       )?.roleName,
     ),
+    isCeo ? countCeoApprovalInbox() : Promise.resolve(0),
+    isBoard && user.roles.some((r) => r.roleCode === 'BOARD_MEMBER')
+      ? countBoardApprovalInbox(user.id)
+      : Promise.resolve(0),
   ]);
 
   return (
@@ -72,11 +76,11 @@ export async function PortalSidebar({
 
       <ul className="relative z-10 space-y-1">
         {isCeo ? (
-          <CeoNav active={active} />
+          <CeoNav active={active} approvalCount={ceoApprovalCount} />
         ) : isSecretariat ? (
           <SecretariatNav active={active} />
         ) : isBoard ? (
-          <BoardNav active={active} />
+          <BoardNav active={active} approvalCount={boardApprovalCount} />
         ) : (
           <DefaultNav primaryHref={primaryHref} active={active} isDirector={isDirector} />
         )}
@@ -208,58 +212,41 @@ function DefaultNav({
 }
 
 // ---------------------------------------------------------------------------
-// CEO — #A29. Real links: CEO Dashboard, Notifications, SMC Submissions, Board Papers,
-// CEO Delegations, Delegation Tracking (both point at /delegations — "tracking" is that same
-// list's own purpose, not a separate report), Sign Out. Everything else has no backing module yet.
-// ---------------------------------------------------------------------------
-function CeoNav({ active }: { active?: string }) {
+// CEO — #A31 rebuild to match the approved CEO Dashboard mockup exactly: one flat 11-item list
+// (no section headers, no "Soon" placeholders — every item here has a real destination), replacing
+// #A29's grouped, mostly-placeholder version. "SMC Submissions" and "Board Papers" reuse existing
+// pages exactly as #A29 already did; "Departments"/"Performance & KPIs"/"Approval Inbox"/
+// "CEO Comments" are new pages built this pass (#A31); "Delegated Tasks" reuses the existing
+// Delegation feature (#A29) rather than a new parallel model, matching the client's "do not
+// duplicate" instruction; "Archive" reuses the Board module's read-only archive (#A30), widened to
+// admit the CEO's oversight role.
+function CeoNav({ active, approvalCount }: { active?: string; approvalCount: number }) {
   return (
     <>
-      <SectionLabel>Overview</SectionLabel>
       <li>
         <SidebarLink
           href="/executive-dashboard"
-          label="CEO Dashboard"
+          label="Executive Overview"
           icon={HomeIcon}
-          active={active !== 'board-papers' && active !== 'delegations'}
+          active={!active || active === 'executive-dashboard'}
         />
       </li>
       <li>
         <SidebarLink
-          href="/notifications"
-          label="Notifications"
-          icon={BellIcon}
-          active={active === 'notifications'}
+          href="/executive-dashboard/departments"
+          label="Departments"
+          icon={PeopleIcon}
+          active={active === 'executive-departments'}
         />
       </li>
       <li>
-        <DisabledSidebarLink label="Executive Action Centre" icon={SearchIcon} />
+        <SidebarLink
+          href="/executive-dashboard/performance"
+          label="Performance &amp; KPIs"
+          icon={ChartIcon}
+          active={active === 'executive-performance'}
+        />
       </li>
-      <li>
-        <DisabledSidebarLink label="Risk and Issues Overview" icon={AlertTriangleIcon} />
-      </li>
-
-      <SectionLabel>Performance</SectionLabel>
-      <li>
-        <DisabledSidebarLink label="Organisational KPIs" icon={ChartIcon} />
-      </li>
-      <li>
-        <DisabledSidebarLink label="Corporate Strategy" icon={DocumentIcon} />
-      </li>
-      <li>
-        <DisabledSidebarLink label="Corporate Plan Progress" icon={ChartIcon} />
-      </li>
-      <li>
-        <DisabledSidebarLink label="Department Performance" icon={ChartIcon} />
-      </li>
-      <li>
-        <DisabledSidebarLink label="Director Performance" icon={PeopleIcon} />
-      </li>
-      <li>
-        <DisabledSidebarLink label="Management Reports" icon={DocumentIcon} />
-      </li>
-
-      <SectionLabel>SMC &amp; Board</SectionLabel>
       <li>
         <SidebarLink
           href="/executive-dashboard"
@@ -277,70 +264,45 @@ function CeoNav({ active }: { active?: string }) {
         />
       </li>
       <li>
-        <DisabledSidebarLink label="CEO Comments" icon={PersonCheckIcon} />
+        <SidebarLink
+          href="/executive-dashboard/approvals"
+          label="Approval Inbox"
+          icon={InboxIcon}
+          active={active === 'executive-approvals'}
+          badge={approvalCount}
+        />
       </li>
       <li>
-        <DisabledSidebarLink label="Board Decisions and Resolutions" icon={ShieldCheckIcon} />
+        <SidebarLink
+          href="/executive-dashboard/comments"
+          label="CEO Comments"
+          icon={PersonCheckIcon}
+          active={active === 'executive-comments'}
+        />
       </li>
-
-      <SectionLabel>Delegations</SectionLabel>
       <li>
         <SidebarLink
           href="/delegations"
-          label="CEO Delegations"
-          icon={PeopleIcon}
+          label="Delegated Tasks"
+          icon={ClockIcon}
           active={active === 'delegations'}
         />
       </li>
       <li>
         <SidebarLink
-          href="/delegations"
-          label="Delegation Tracking"
-          icon={ChartIcon}
-          active={false}
+          href="/notifications"
+          label="Notifications"
+          icon={BellIcon}
+          active={active === 'notifications'}
         />
       </li>
       <li>
-        <DisabledSidebarLink label="Director Responses" icon={PersonCheckIcon} />
-      </li>
-      <li>
-        <DisabledSidebarLink label="Overdue Executive Actions" icon={AlertTriangleIcon} />
-      </li>
-
-      <SectionLabel>Calendar</SectionLabel>
-      <li>
-        <DisabledSidebarLink label="SMC Calendar" icon={CalendarIcon} />
-      </li>
-      <li>
-        <DisabledSidebarLink label="Board Calendar" icon={CalendarIcon} />
-      </li>
-      <li>
-        <DisabledSidebarLink label="Board Agenda" icon={DocumentIcon} />
-      </li>
-      <li>
-        <DisabledSidebarLink label="Board Archive" icon={ArchiveIcon} />
-      </li>
-
-      <SectionLabel>Reports</SectionLabel>
-      <li>
-        <DisabledSidebarLink label="Executive Performance Reports" icon={ChartIcon} />
-      </li>
-      <li>
-        <DisabledSidebarLink label="KPI/KRA Reports" icon={ChartIcon} />
-      </li>
-      <li>
-        <DisabledSidebarLink label="Department Status Reports" icon={ChartIcon} />
-      </li>
-      <li>
-        <DisabledSidebarLink label="Delegation Reports" icon={ChartIcon} />
-      </li>
-      <li>
-        <DisabledSidebarLink label="Board Pipeline Reports" icon={ChartIcon} />
-      </li>
-
-      <SectionLabel>Settings</SectionLabel>
-      <li>
-        <DisabledSidebarLink label="Settings" icon={SettingsIcon} />
+        <SidebarLink
+          href="/board/archive"
+          label="Archive"
+          icon={ArchiveIcon}
+          active={active === 'board-archive'}
+        />
       </li>
       <li>
         <SignOutButton />
@@ -492,32 +454,27 @@ function SecretariatNav({ active }: { active?: string }) {
 // inside each page the same way /review-queue and /delegations already differentiate CEO vs
 // Secretariat content on one route). Real links only — every item here has a working destination.
 // ---------------------------------------------------------------------------
-function BoardNav({ active }: { active?: string }) {
+// #A31 rebuild to match the approved Board Dashboard mockup exactly: one flat 10-item list ending
+// in Sign Out, no "Notifications"/"Settings" items (the header's bell icon already covers
+// notifications, matching the mockup) and no section headers. "Approval Inbox"/"Comments"/
+// "Minutes" are new pages built this pass; "Meetings"/"Agenda & Papers"(renamed from "Board
+// Papers")/"Resolutions"/"Actions"(renamed from "Action Tracker")/"Archive" reuse #A30's existing
+// pages exactly, just relabelled to match the mockup's wording.
+function BoardNav({ active, approvalCount }: { active?: string; approvalCount: number }) {
   return (
     <>
-      <SectionLabel>Overview</SectionLabel>
       <li>
         <SidebarLink
           href="/board/dashboard"
-          label="Board Dashboard"
+          label="Dashboard"
           icon={HomeIcon}
           active={!active || active === 'board-dashboard'}
         />
       </li>
       <li>
         <SidebarLink
-          href="/notifications"
-          label="Notifications"
-          icon={BellIcon}
-          active={active === 'notifications'}
-        />
-      </li>
-
-      <SectionLabel>Board</SectionLabel>
-      <li>
-        <SidebarLink
           href="/board/meetings"
-          label="Board Meetings"
+          label="Meetings"
           icon={CalendarIcon}
           active={active === 'board-meetings'}
         />
@@ -525,9 +482,26 @@ function BoardNav({ active }: { active?: string }) {
       <li>
         <SidebarLink
           href="/board-papers"
-          label="Board Papers"
+          label="Agenda &amp; Papers"
           icon={PaperPlaneIcon}
           active={active === 'board-papers'}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/board/approvals"
+          label="Approval Inbox"
+          icon={InboxIcon}
+          active={active === 'board-approvals'}
+          badge={approvalCount}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/board/comments"
+          label="Comments"
+          icon={PersonCheckIcon}
+          active={active === 'board-comments'}
         />
       </li>
       <li>
@@ -540,8 +514,16 @@ function BoardNav({ active }: { active?: string }) {
       </li>
       <li>
         <SidebarLink
+          href="/board/minutes"
+          label="Minutes"
+          icon={DocumentIcon}
+          active={active === 'board-minutes'}
+        />
+      </li>
+      <li>
+        <SidebarLink
           href="/board/actions"
-          label="Action Tracker"
+          label="Actions"
           icon={ChartIcon}
           active={active === 'board-actions'}
         />
@@ -549,15 +531,10 @@ function BoardNav({ active }: { active?: string }) {
       <li>
         <SidebarLink
           href="/board/archive"
-          label="Board Archive"
+          label="Archive"
           icon={ArchiveIcon}
           active={active === 'board-archive'}
         />
-      </li>
-
-      <SectionLabel>Settings</SectionLabel>
-      <li>
-        <DisabledSidebarLink label="Settings" icon={SettingsIcon} />
       </li>
       <li>
         <SignOutButton />
@@ -580,6 +557,42 @@ function SignOutButton() {
   );
 }
 
+// #A31 sidebar badge counts — deliberately plain counts, not a call into the fuller
+// listCeoApprovalInbox/listDecisionsForSubmission service functions (those also re-check the
+// caller's role, redundant here since PortalSidebar already knows it).
+async function countCeoApprovalInbox(): Promise<number> {
+  const [smcCount, boardCount] = await Promise.all([
+    prisma.submission.count({
+      where: {
+        submissionCategory: 'SMC',
+        workflowStatus: { in: ['ACCEPTED', 'ROUTED'] },
+        endorsedForBoard: false,
+      },
+    }),
+    prisma.submission.count({ where: { submissionCategory: 'BOARD', boardOutcome: null } }),
+  ]);
+  return smcCount + boardCount;
+}
+
+async function countBoardApprovalInbox(userId: string): Promise<number> {
+  const decisionPapers = await prisma.submission.findMany({
+    where: {
+      submissionCategory: 'BOARD',
+      boardOutcome: null,
+      meeting: { status: { in: ['PUBLISHED', 'IN_PROGRESS'] } },
+    },
+    select: { id: true, paperType: true },
+  });
+  const candidates = decisionPapers.filter((p) => /decision paper/i.test(p.paperType));
+  if (candidates.length === 0) return 0;
+  const decided = await prisma.decision.findMany({
+    where: { submissionId: { in: candidates.map((p) => p.id) }, recordedById: userId },
+    select: { submissionId: true },
+  });
+  const decidedIds = new Set(decided.map((d) => d.submissionId));
+  return candidates.filter((p) => !decidedIds.has(p.id)).length;
+}
+
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <li className="px-3 pb-1 pt-4 text-[10px] font-bold uppercase tracking-wider text-white/40 first:pt-0">
@@ -594,12 +607,14 @@ function SidebarLink({
   icon: Icon,
   active,
   compact,
+  badge,
 }: {
   href: string;
   label: string;
   icon: typeof HomeIcon;
   active: boolean;
   compact?: boolean;
+  badge?: number;
 }) {
   return (
     <Link
@@ -609,7 +624,12 @@ function SidebarLink({
       } ${active ? 'bg-white/15 text-white' : 'text-white/80 hover:bg-white/10 hover:text-white'}`}
     >
       <Icon className="h-4 w-4 shrink-0" />
-      {label}
+      <span className="flex-1">{label}</span>
+      {Boolean(badge) && (
+        <span className="rounded-full bg-status-accent px-1.5 py-0.5 text-[10px] font-bold text-white">
+          {badge}
+        </span>
+      )}
     </Link>
   );
 }

@@ -898,3 +898,163 @@ submissionId IS NULL AND activityId IS NULL`, intended to catch orphaned rows wi
 - **Typecheck/lint/tests/production build all clean** before this entry was written — `npx tsc
 --noEmit`, `npx next lint`, `npm test` (21/21), `next build`, per the client's own closing
   requirement.
+
+## A31 — CEO and Board Dashboards rebuilt from approved mockups; the "18 modules" and "one shared
+
+## workflow engine" architecture requests (2026-08-26)
+
+The client's third large spec supplied two approved visual mockups (CEO Executive Dashboard, Board
+Member Dashboard) as the "visual source of truth" and asked for an 18-named-module architecture
+plus one shared workflow engine reused across every document type. This entry records the gap
+assessment done first (per the client's own "Implementation Sequence" step 1-3) and the scope
+decisions that followed it — most consequentially, **not** building a single generic workflow
+engine, for reasons explained below.
+
+### Gap assessment (existing vs. reusable vs. new)
+
+The client's 18 requested modules already exist in this codebase, just not literally organized
+into 18 folders named after the client's list — remapping working code into a folder structure
+with no functional difference would be pure churn, contrary to CLAUDE.md's "preserve existing
+structure" instruction, so this pass did not do that. What already existed and was reused as-is:
+Identity/Access (`lib/auth`), Organisation/Departments (`Department` model, `#A4`), Users/Roles
+(`Role`/`UserRole`, `#A4`), Submissions/Papers (`lib/submissions`), Documents/Templates
+(`lib/templates`, `lib/providers/documentStorage`), Workflow/Status (table-driven state machines
+per domain — see below), Approvals/Decisions (`lib/submissions/review.ts`'s CEO vetting, `#A27`;
+`lib/board/decisions.ts`, `#A30`), Comments/Responses (`lib/board/comments.ts`, `#A30`, extended
+this pass), Meetings/Agendas (`lib/board/meetings.ts`, `#A30`), Minutes/Resolutions
+(`lib/board/minutes.ts`/`resolutions.ts`, `#A30`), Tasks/Delegations (`lib/delegations`, `#A29`),
+Notifications (`lib/providers/notifications`), Audit (`lib/audit/auditLog.ts`), SharePoint routing
+(`lib/providers/documentStorage`), Administration (`app/admin`). Two modules from the client's list
+had no real implementation anywhere: KPI/KRA and Performance Reporting (built this pass, see
+below), and Digital Signature (built this pass as an interface-only future module, see below).
+
+### Why this pass does not build "one shared workflow engine"
+
+The client's spec: "Use the same workflow engine for [every document type]... Do not create
+separate hard-coded workflow engines for each document type." This directly contradicts a decision
+already made and repeatedly reaffirmed in this exact codebase across three prior increments
+(`#A1`, and explicitly restated in `#A27`, `#A29`, `#A30`): "a small table-driven graph, not a
+generic workflow engine, per the client's explicit instruction not to introduce one." That original
+instruction came from this same client, earlier in the project. Rather than silently pick one
+contradictory instruction over the other, this is flagged as the single assumption in this pass
+most needing NICTA's explicit confirmation (see the closing report). In the meantime: **every
+domain's state machine already follows the identical pattern** — `SUBMISSION_STATES`/`TRANSITIONS`
+(`submissions/workflow.ts`), `DELEGATION_STATES`/`TRANSITIONS` (`delegations/workflow.ts`),
+`BOARD_MEETING_STATES`/`TRANSITIONS` (`board/meetings.ts`), `RESOLUTION_STATUSES`/`TRANSITIONS`
+(`board/resolutions.ts`) — a states array, a `Record<State, State[]>` transitions table, and a
+`transitionX()` function that validates the edge, writes the entity, writes a `WorkflowTransition`
+row, and writes an `AuditEvent`. This is "one workflow engine" in every sense except literally
+being one importable class/module — extracting that identical shape into a single generic
+`src/lib/workflow/engine.ts` (a `defineWorkflow(states, transitions)` factory each domain module
+calls) is a real, bounded refactor a future pass could do safely now that four domains have proven
+the pattern is genuinely identical — but doing it _this_ pass, on top of everything else requested,
+would mean touching four already-tested, already-shipped state machines' call sites (dozens of
+`requireAnyRole`/notification/audit call sites per domain) purely for architectural tidiness, with
+real regression risk and no new user-facing capability. Deferred, not abandoned — see
+known-limitations.md.
+
+### KPI/KRA and Performance Reporting — built this pass, deliberately minimal
+
+`#A29`'s known-limitations entry already flagged the full client-described hierarchy (Corporate
+Strategy -> Corporate Plan -> Org KPI -> Dept KPI -> Activity -> Weekly Update -> Evidence ->
+Executive Report) as a 5-6-model pipeline out of scope for a single pass. This pass builds only
+what the CEO Dashboard mockup actually needs to show real, non-hardcoded numbers: one new model,
+`DepartmentPerformance` (departmentId + reportingPeriodId + kpiPercent/kraPercent/
+overdueActivities/criticalRisks/lastReportedAt), reusing the _existing_ `ReportingPeriod` model
+(previously only quarterly rows; 6 new monthly rows added to match the mockup's Jan-Jun trend) —
+and `src/lib/performance/riskService.ts`, a single pure function (`computeDepartmentStatus`) the
+client's spec explicitly asked for: "traffic-light calculations must come from a reusable
+service... thresholds configurable... clearly identify them as configurable rather than official
+NICTA policy" (the UI states this on both the dashboard and the Departments page, verbatim). This
+is the _destination_ a real weekly-reporting pipeline would eventually write into — not a
+substitute for one. All current figures are seed/demo data (`prisma/seed.ts`'s
+`seedDepartmentPerformance`), clearly commented as fictional.
+
+### CEO Approval Inbox — an aggregation, not a new approval engine
+
+The mockup's Approval Inbox lists 4 document types with a rich action set (Approve/Approve with
+Conditions/Return with Comment/Request Further Information/Decline/Delegate Review). This pass
+builds `src/lib/executive/approvalInbox.ts` as a **read aggregation** over what already exists and
+already works (SMC submissions awaiting CEO review, `#A27`'s `listSubmissionsAwaitingCeoReview`;
+Board Decision Papers with no `boardOutcome` yet) — each row links through to its real, tested
+action panel (the CEO vetting form on `/executive-dashboard`, or the Board decision panel on
+`/submissions/[id]`) rather than presenting a client-side "Approve with Conditions"/"Decline"/
+"Delegate Review" button with no server-side action behind it. CEO Memos (a document type shown
+once in the mockup's inbox, `CEO-MEMO-2026-014`) has no backing model anywhere in this codebase — a
+full Memo module (its own ~10-state lifecycle) was judged out of scope for this pass and is not
+built; the inbox surfaces the 3 document types that already exist (SMC submissions, Board
+Information/Decision Papers) rather than fabricating memo data. See known-limitations.md.
+
+### CEO Delegated Tasks — reused, not duplicated
+
+The mockup's "CEO Delegated Tasks" (states: Assigned/Acknowledged/In Progress/Awaiting Update/
+Submitted/Completed/Overdue/Closed) describes the exact same concept `#A29` already built in full
+(CEO -> Director delegations, its own 10-state machine, full UI). Rather than build a second,
+parallel "delegated task" model with a differently-worded state list for the same real-world
+action, the CEO sidebar's "Delegated Tasks" item links straight to the existing `/delegations` —
+per the client's own "do not create duplicate models or services where reusable ones already
+exist" instruction. The two state vocabularies differ in wording (e.g. "Awaiting Update" vs.
+`#A29`'s `RETURNED_FOR_MORE_WORK`) but not in the underlying lifecycle shape; reconciling the exact
+labels is a display-layer decision for a future pass, not a reason to fork the model.
+
+### Two new future-module provider interfaces
+
+**Digital Signature** (`src/lib/providers/signature/`): interface + fields the client's spec asks
+for (signer identity, timestamp, certificate reference, document hash, validation status)
+verbatim, but — per explicit instruction — **no mock that pretends to succeed**. The only
+implementation, `UnavailableSignatureProvider`, throws on every method. This is a deliberate
+difference from every other provider interface in this codebase (which all ship a working mock for
+zero-credential local dev) — signing is the one capability where "looks like it worked" would be
+actively dangerous to fake. Surfaced as `<ComingSoonBadge>` ("Digital signature — Coming Soon")
+next to the two real approval actions it would eventually attach to (CEO vetting, Board decisions).
+
+**WhatsApp** (`src/lib/providers/notifications/whatsappProvider.ts`): added as a third
+`NOTIFICATION_PROVIDER` option, mirroring `GraphNotificationProvider`'s exact shape (in-app record
+always written first, then throws without live credentials) rather than a separate, unused-today
+interface with speculative methods (delivery/read receipts, template approval, expiring tokens) —
+those all belong on this same interface once a real WhatsApp Business API integration is
+undertaken, not invented as unused scaffolding now. Surfaced as `<ComingSoonBadge>` on
+`/notifications`.
+
+### Document read/download audit and a real access-control gap fixed live
+
+The client's "Document Read and Download Audit" requirement is satisfied by one addition to the
+existing local-document API route (`src/app/api/documents/local/[...key]/route.ts`): a
+`DOCUMENT_VIEWED` `AuditEvent` on every successful fetch, via the same `recordAuditEvent` every
+other action already uses — no new model. While making this change, the route's _access check_
+was found to be a second, independently-maintained, narrower copy of `assertCanAccessSubmission`'s
+logic (owner-or-`REVIEWER_SECRETARIAT`/`SYSTEM_ADMIN` only) that had silently drifted out of sync:
+it never recognized `BOARD_MEMBER`, `BOARD_SECRETARIAT`, or `EXECUTIVE_VIEWER` at all, so a Board
+Member, the CEO, or the Board Secretariat opening a Board Paper's actual document got a 403 even
+though the page around it rendered fine. Fixed by deleting the duplicated check and calling
+`getSubmissionForUser` directly — the one already-correct, already-tested authority. Confirmed live
+(and now regression-tested — `tests/unit/executive/executiveDashboard.test.ts`) that Board
+Secretariat, CEO, and a Board Member on a published meeting can all download; an unrelated Director
+still cannot.
+
+### Sidebar: mockups supersede `#A29`'s placeholder-heavy version for these two roles
+
+The CEO and Board mockups each show one flat, ungrouped list with **no** "Soon"-tagged items —
+every single item has a real destination. This supersedes `#A29`'s more elaborate, mostly-
+placeholder CEO/Board navs for exactly these two roles (Director/Secretariat/Manager/Admin navs
+are unchanged). Sidebar badge counts (matching the mockups' small numeral badges on "Approval
+Inbox") are computed by two small counting queries in `PortalSidebar.tsx` itself, not by calling
+the fuller `listCeoApprovalInbox`/`listMyBoardApprovals` service functions (which redundantly
+re-check a role the sidebar already knows).
+
+### Verification
+
+**34 automated tests** (`npm test`), up from 21: the original Board Dashboard suite unchanged, plus
+`tests/unit/performance/riskService.test.ts` (5 pure unit tests, thresholds/boundaries) and
+`tests/unit/executive/executiveDashboard.test.ts` (8 integration tests — permissions, the Approval
+Inbox aggregation, and 4 regression tests for the document-access fix above, including the
+negative case). Live-verified via Playwright: all 8 new routes load without error for both roles;
+the document-access fix confirmed with a real uploaded file (Board Secretariat/CEO/Board Member
+200, unrelated Director 403); existing Director/Secretariat/Delegations pages confirmed unbroken.
+Two screenshot comparisons against the approved mockups (CEO dashboard, Departments page) showed
+strong structural and visual fidelity — real chart data, real traffic-light colours matching the
+seeded pattern, matching sidebar/card layout. All test-created rows and the one uploaded test file
+were deleted afterward; confirmed via direct DB counts.
+
+- **Typecheck/lint/tests/production build all clean** — `npx tsc --noEmit`, `npx next lint`,
+  `npm test` (34/34), `next build`, per the client's own closing requirement.

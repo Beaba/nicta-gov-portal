@@ -10,6 +10,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { BoardPaperModal } from '@/components/BoardPaperModal';
 import { ActionItemsSection } from '@/components/ActionItemsSection';
 import { CommentThread } from '@/components/CommentThread';
+import { ComingSoonBadge } from '@/components/ComingSoonBadge';
 import {
   uploadMainDocumentAction,
   uploadAnnexureAction,
@@ -405,6 +406,9 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
               >
                 Record Decision
               </button>
+              <div className="mt-1">
+                <ComingSoonBadge label="Digital signature" />
+              </div>
             </form>
           )}
 

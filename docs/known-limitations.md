@@ -151,15 +151,39 @@ both Director and Corporate Services Director roles could use it.
   fires through the existing in-app `NotificationProvider` only; the mock provider is what's wired
   up locally. Real email needs the same `NOTIFICATION_PROVIDER=graph` deployment step already
   documented above, nothing Board-specific to add.
-- **No read/download tracking on Board documents.** The client's spec asks for "read and download
-  tracking" as a security/audit control; this pass records every substantive Board action (meeting
-  created, decision recorded, comment added, minutes published, etc.) via the existing
-  `AuditEvent`/`recordAuditEvent` pattern, but does not log a distinct event purely for _viewing_ or
-  _downloading_ an already-published paper/minutes file — that would need an event on every
-  document-serving request (`/api/documents/local/[...key]`), not just on state-changing actions,
-  and was judged a distinct, separate feature from this pass's scope.
 - **No session-timeout or former-Board-Member-specific access control beyond the existing
   `User.isActive` gate.** A deactivated Board Member's account already can't sign in (the same
   `isActive` check every account in this app goes through — `#A3`), which satisfies "restricted
   access for inactive or former Board Members" at the account level; there is no additional
   Board-specific session-timeout policy beyond `iron-session`'s existing cookie expiry.
+- **Document read/download tracking is recorded but not yet browsable.** `#A31` added a
+  `DOCUMENT_VIEWED` `AuditEvent` on every successful document fetch
+  (`src/app/api/documents/local/[...key]/route.ts`), satisfying "read and download tracking" at the
+  data layer — the events exist and are queryable — but there is no dedicated admin/Secretariat UI
+  page to browse them yet, only the raw `AuditEvent` table.
+- **No unified generic workflow engine** (`#A31`'s spec explicitly asked for one; this codebase's
+  earlier, client-given instruction was the opposite — see `#A31`'s decision log entry, the single
+  assumption most needing NICTA's explicit confirmation). Every domain (`Submission`, `Delegation`,
+  Board `Meeting`, `Resolution`) already uses the identical table-driven-graph _pattern_, just as
+  separate modules rather than one shared class — extracting that into
+  `src/lib/workflow/engine.ts` is a bounded, low-risk refactor now that the pattern has been proven
+  four times, recommended as a future milestone once the client confirms which instruction should
+  win.
+- **No KPI/KRA collection pipeline** — `#A31` built `DepartmentPerformance` (a snapshot table) and
+  the risk/traffic-light service the CEO Dashboard reads from, but there is still no real
+  Manager-weekly-update-to-department-KPI pipeline feeding it; every figure in the app today is
+  seed/demo data (`prisma/seed.ts`'s `seedDepartmentPerformance`), not derived from any actual
+  reporting workflow.
+- **CEO Approval Inbox is a read aggregation, not a new approval action set.** The approved mockup
+  shows CEO actions (Approve with Conditions/Decline/Delegate Review) that don't exist as
+  server-side operations on SMC submissions today — the inbox links each item through to its real,
+  existing action panel (CEO vetting, Board decisions) rather than presenting buttons with no
+  backing workflow. CEO Memos (one row type in the mockup) has no model anywhere in this codebase
+  and isn't built — see `#A31`.
+- **CEO Delegated Tasks reuses `#A29`'s Delegation feature** rather than a second parallel model —
+  the mockup's state _labels_ (Assigned/Acknowledged/In Progress/Awaiting Update/Submitted/
+  Completed/Overdue/Closed) differ in wording from the existing Delegation state machine's labels;
+  reconciling the exact display text is a small follow-up, not a data-model change.
+- **Digital signature and WhatsApp remain interface-only future modules** (`#A31`) — see their own
+  provider files (`src/lib/providers/signature/`, `src/lib/providers/notifications/
+whatsappProvider.ts`) for what a real implementation would need to supply.

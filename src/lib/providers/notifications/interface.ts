@@ -9,6 +9,6 @@ export interface NotificationInput {
 }
 
 export interface NotificationProvider {
-  readonly providerName: 'mock' | 'graph';
+  readonly providerName: 'mock' | 'graph' | 'whatsapp';
   notify(input: NotificationInput): Promise<void>;
 }

@@ -4,7 +4,7 @@ export function DashboardStatCard({
   icon: Icon,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   icon: (props: { className?: string }) => React.ReactNode;
 }) {
   return (

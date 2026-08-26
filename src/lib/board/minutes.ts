@@ -148,3 +148,26 @@ export async function listMinutesForUser(meetingId: string, actingUser: Authenti
     orderBy: { version: 'desc' },
   });
 }
+
+/** #A31 — top-level minutes register ("Search minutes and resolutions"). Board Members only ever
+ * see PUBLISHED minutes on meetings they can already see (published-or-later); Secretariat sees
+ * every version on every meeting, including drafts they're still working on. */
+export async function listAllMinutesForUser(actingUser: AuthenticatedUser, search?: string) {
+  requireAnyRole(actingUser, [...BOARD_MEMBER_ROLES, 'BOARD_SECRETARIAT']);
+  const isSecretariat = actingUser.roles.some(
+    (r) => r.roleCode === 'BOARD_SECRETARIAT' || r.roleCode === 'SYSTEM_ADMIN',
+  );
+
+  return prisma.meetingMinutes.findMany({
+    where: {
+      ...(isSecretariat ? {} : { status: 'PUBLISHED' }),
+      meeting: search
+        ? { title: { contains: search, mode: 'insensitive' } }
+        : isSecretariat
+          ? undefined
+          : { status: { in: ['PUBLISHED', 'IN_PROGRESS', 'COMPLETED', 'ARCHIVED'] } },
+    },
+    include: { meeting: true },
+    orderBy: { uploadedAt: 'desc' },
+  });
+}

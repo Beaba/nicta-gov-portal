@@ -117,3 +117,30 @@ export async function getMyLatestDecision(submissionId: string, actingUser: Auth
     orderBy: { decisionDate: 'desc' },
   });
 }
+
+/** #A31 — the Board Member's own "Approval Inbox": published Decision Papers with no final Board
+ * outcome yet, that this specific Board Member has not yet voted on. */
+export async function listMyBoardApprovals(actingUser: AuthenticatedUser) {
+  requireAnyRole(actingUser, BOARD_MEMBER_ROLES);
+
+  const candidates = await prisma.submission.findMany({
+    where: {
+      submissionCategory: 'BOARD',
+      boardOutcome: null,
+      meeting: { status: { in: ['PUBLISHED', 'IN_PROGRESS'] } },
+    },
+    include: { department: true, meeting: true },
+  });
+  const decisionCandidates = candidates.filter((p) => isDecisionPaper(p.paperType));
+  if (decisionCandidates.length === 0) return [];
+
+  const decided = await prisma.decision.findMany({
+    where: {
+      submissionId: { in: decisionCandidates.map((p) => p.id) },
+      recordedById: actingUser.id,
+    },
+    select: { submissionId: true },
+  });
+  const decidedIds = new Set(decided.map((d) => d.submissionId));
+  return decisionCandidates.filter((p) => !decidedIds.has(p.id));
+}

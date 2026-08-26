@@ -98,3 +98,24 @@ export async function listComments(
   }
   return ordered;
 }
+
+/** #A31 — a flat, most-recent-first feed across every Board-commentable entity, for the "Comments"
+ * nav page. Same BOARD_ONLY visibility filtering as listComments. */
+export async function listRecentBoardComments(
+  actingUser: AuthenticatedUser,
+  take = 50,
+): Promise<Comment[]> {
+  requireAnyRole(actingUser, BOARD_ANY_ROLES);
+  const isSecretariat =
+    hasAnyRole(actingUser, BOARD_SECRETARIAT_ROLES) && !hasAnyRole(actingUser, ['BOARD_MEMBER']);
+
+  const comments = await prisma.comment.findMany({
+    where: {
+      entityType: { in: ['Submission', 'Resolution', 'MeetingMinutes'] },
+      ...(isSecretariat ? { visibility: { not: 'BOARD_ONLY' } } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    take,
+  });
+  return comments;
+}

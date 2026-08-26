@@ -327,6 +327,9 @@ async function main() {
   console.log('Seeding Milestone 1 demo submissions...');
   await seedDemoSubmissions();
 
+  console.log('Seeding demo department performance snapshots...');
+  await seedDepartmentPerformance();
+
   console.log('Seed complete.');
 
   // Real NICTA staff, provided directly by the client (2026-08-21) — see #A20. Directors get both
@@ -719,6 +722,125 @@ async function main() {
           newState: JSON.stringify({ workflowStatus: step.to }),
         },
       });
+    }
+  }
+
+  // #A31 — demo-only department performance trend (Jan-Jun 2026) backing the CEO Dashboard's
+  // KPI/KRA chart and department traffic-light table. Fictional figures, not real NICTA
+  // performance data — see the model's own schema comment and docs/known-limitations.md. Six
+  // monthly ReportingPeriod rows are created (this codebase previously only had two *quarterly*
+  // ones) since the approved CEO mockup shows a monthly Jan-Jun trend line.
+  async function seedDepartmentPerformance() {
+    const months = [
+      {
+        code: '2026-01',
+        label: 'January 2026',
+        start: new Date('2026-01-01'),
+        end: new Date('2026-01-31'),
+      },
+      {
+        code: '2026-02',
+        label: 'February 2026',
+        start: new Date('2026-02-01'),
+        end: new Date('2026-02-28'),
+      },
+      {
+        code: '2026-03',
+        label: 'March 2026',
+        start: new Date('2026-03-01'),
+        end: new Date('2026-03-31'),
+      },
+      {
+        code: '2026-04',
+        label: 'April 2026',
+        start: new Date('2026-04-01'),
+        end: new Date('2026-04-30'),
+      },
+      {
+        code: '2026-05',
+        label: 'May 2026',
+        start: new Date('2026-05-01'),
+        end: new Date('2026-05-31'),
+      },
+      {
+        code: '2026-06',
+        label: 'June 2026',
+        start: new Date('2026-06-01'),
+        end: new Date('2026-06-30'),
+      },
+    ];
+
+    const periodIds: string[] = [];
+    for (const m of months) {
+      const period = await prisma.reportingPeriod.upsert({
+        where: { code: m.code },
+        update: { label: m.label },
+        create: {
+          code: m.code,
+          label: m.label,
+          periodType: 'Monthly',
+          startDate: m.start,
+          endDate: m.end,
+        },
+      });
+      periodIds.push(period.id);
+    }
+
+    // June (latest) target per department — chosen so the computed traffic-light status (see
+    // src/lib/performance/riskService.ts's default thresholds) lands on a mix matching the
+    // approved mockup: 3 On Track, 2 At Risk, 1 Critical.
+    const departmentTargets: Record<
+      string,
+      { kpi: number; kra: number; overdue: number; risks: number }
+    > = {
+      DIGITAL_TRANSFORMATION: { kpi: 85, kra: 79, overdue: 1, risks: 0 },
+      ENGINEERING: { kpi: 68, kra: 60, overdue: 4, risks: 1 },
+      ECON_LICENSING: { kpi: 78, kra: 74, overdue: 2, risks: 0 },
+      COMPLIANCE: { kpi: 48, kra: 42, overdue: 7, risks: 3 },
+      CORPORATE_SERVICES: { kpi: 62, kra: 56, overdue: 5, risks: 1 },
+      OCEO: { kpi: 90, kra: 86, overdue: 0, risks: 0 },
+    };
+    // A shared starting point each department ramps up from, over the 6 months — mirrors the
+    // approved mockup's org-wide trend line shape (steadily improving, not flat or declining).
+    const START_KPI = 55;
+    const START_KRA = 42;
+
+    for (const dept of SEED_DEPARTMENTS) {
+      const target = departmentTargets[dept.code];
+      if (!target) continue;
+      const departmentId = departments.get(dept.code);
+      if (!departmentId) continue;
+
+      for (let i = 0; i < months.length; i++) {
+        const reportingPeriodId = periodIds[i];
+        const month = months[i];
+        if (!reportingPeriodId || !month) continue;
+        const t = i / (months.length - 1);
+        const kpiPercent = Math.round(START_KPI + (target.kpi - START_KPI) * t);
+        const kraPercent = Math.round(START_KRA + (target.kra - START_KRA) * t);
+        const overdueActivities = Math.max(0, Math.round(target.overdue * (0.5 + 0.5 * t)));
+        const criticalRisks =
+          i === months.length - 1 ? target.risks : Math.max(0, target.risks - 1);
+
+        await prisma.departmentPerformance.upsert({
+          where: {
+            departmentId_reportingPeriodId: {
+              departmentId,
+              reportingPeriodId,
+            },
+          },
+          update: { kpiPercent, kraPercent, overdueActivities, criticalRisks },
+          create: {
+            departmentId,
+            reportingPeriodId,
+            kpiPercent,
+            kraPercent,
+            overdueActivities,
+            criticalRisks,
+            lastReportedAt: month.end,
+          },
+        });
+      }
     }
   }
 

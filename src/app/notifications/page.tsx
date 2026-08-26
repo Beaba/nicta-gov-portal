@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db/prisma';
 import { PortalShell } from '@/components/PortalShell';
+import { ComingSoonBadge } from '@/components/ComingSoonBadge';
 import Link from 'next/link';
 
 export default async function NotificationsPage() {
@@ -21,7 +22,10 @@ export default async function NotificationsPage() {
 
   return (
     <PortalShell user={user}>
-      <h1 className="text-2xl text-nicta-teal-dark">Notifications</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl text-nicta-teal-dark">Notifications</h1>
+        <ComingSoonBadge label="WhatsApp notifications" />
+      </div>
 
       {notifications.length === 0 ? (
         <p className="mt-8 text-sm text-nicta-neutral-700">No notifications yet.</p>

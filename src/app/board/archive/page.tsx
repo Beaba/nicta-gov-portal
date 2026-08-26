@@ -15,7 +15,8 @@ export default async function BoardArchivePage() {
     (r) =>
       r.roleCode === 'BOARD_MEMBER' ||
       r.roleCode === 'BOARD_SECRETARIAT' ||
-      r.roleCode === 'SYSTEM_ADMIN',
+      r.roleCode === 'SYSTEM_ADMIN' ||
+      r.roleCode === 'EXECUTIVE_VIEWER',
   );
   if (!isBoard) redirect('/');
 

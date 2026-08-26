@@ -29,9 +29,10 @@ model Department {
   userRoles                   UserRole[]
   workplans                   Workplan[]
   submissions                 Submission[]
-  delegationsAsSupportingDept Delegation[] @relation("DelegationSupportingDepartment")
+  delegationsAsSupportingDept Delegation[]            @relation("DelegationSupportingDepartment")
   resolutionsAsResponsible    Resolution[]
   actionItemsAsResponsible    ActionItem[]
+  performanceSnapshots        DepartmentPerformance[]
 }
 
 model Role {
@@ -64,7 +65,32 @@ model ReportingPeriod {
   endDate    DateTime
   isActive   Boolean  @default(true)
 
-  updates ActivityUpdate[]
+  updates               ActivityUpdate[]
+  departmentPerformance DepartmentPerformance[]
+}
+
+// #A31 — a minimal per-department-per-period performance snapshot backing the CEO Dashboard's KPI/
+// KRA figures and traffic-light table. Deliberately NOT the full Corporate Strategy -> Corporate
+// Plan -> Org KPI -> Dept KPI -> Activity -> Update -> Evidence -> Report hierarchy the client's
+// earlier spec described (#A29's known-limitations entry) — that is a real Manager-weekly-update
+// collection pipeline this snapshot does not attempt to replace. This table is the *destination*
+// a future pipeline would write into; for now it is populated by seed data only, clearly labelled
+// as demo figures — see prisma/seed.ts and docs/known-limitations.md.
+model DepartmentPerformance {
+  id                String          @id @default(cuid())
+  departmentId      String
+  department        Department      @relation(fields: [departmentId], references: [id])
+  reportingPeriodId String
+  reportingPeriod   ReportingPeriod @relation(fields: [reportingPeriodId], references: [id])
+  kpiPercent        Int
+  kraPercent        Int
+  overdueActivities Int             @default(0)
+  criticalRisks     Int             @default(0)
+  lastReportedAt    DateTime?
+  recordedById      String?
+  createdAt         DateTime        @default(now())
+
+  @@unique([departmentId, reportingPeriodId])
 }
 
 // Client requirement: "Make the list configurable so Board paper types and other documents can be

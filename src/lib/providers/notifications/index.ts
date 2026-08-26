@@ -1,6 +1,7 @@
 import { getEnv } from '@/lib/config/env';
 import { MockNotificationProvider } from '@/lib/providers/notifications/mockProvider';
 import { GraphNotificationProvider } from '@/lib/providers/notifications/graphProvider';
+import { WhatsAppNotificationProvider } from '@/lib/providers/notifications/whatsappProvider';
 import type { NotificationProvider } from '@/lib/providers/notifications/interface';
 
 let provider: NotificationProvider | undefined;
@@ -11,7 +12,9 @@ export function getNotificationProvider(): NotificationProvider {
   provider =
     env.NOTIFICATION_PROVIDER === 'graph'
       ? new GraphNotificationProvider()
-      : new MockNotificationProvider();
+      : env.NOTIFICATION_PROVIDER === 'whatsapp'
+        ? new WhatsAppNotificationProvider()
+        : new MockNotificationProvider();
   return provider;
 }
 
