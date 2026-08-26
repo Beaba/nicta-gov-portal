@@ -185,6 +185,21 @@ export function buildDocumentPathSegments(placement: DocumentPlacementMetadata):
       return [...base, '03_SMC_Source', fileName];
     }
 
+    case 'BOARD_MINUTES': {
+      const meetingDate = requireField(placement, 'meetingDate');
+      const meetingNumber = requireField(placement, 'meetingNumber');
+      const version = placement.version ?? 1;
+      const { year, compact } = meetingDateParts(meetingDate);
+      return [
+        GOVERNANCE_LIBRARY,
+        '02_Board_Papers',
+        year,
+        `BOARD_${compact}`,
+        '02_Minutes',
+        `${meetingNumber}_${compact}_Minutes_v${version}${ext}`,
+      ];
+    }
+
     default: {
       const exhaustive: never = placement.kind;
       throw new Error(`Unknown DocumentPlacementMetadata.kind: ${String(exhaustive)}`);

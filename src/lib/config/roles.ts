@@ -53,7 +53,7 @@ export const ROLE_LANDING_PAGE: Record<RoleCode, string> = {
   SMC_SECRETARIAT: '/smc/dashboard',
   SMC_MEMBER: '/smc/dashboard',
   BOARD_SECRETARIAT: '/board/dashboard',
-  BOARD_MEMBER: '/board-papers',
+  BOARD_MEMBER: '/board/dashboard',
   EXECUTIVE_VIEWER: '/executive-dashboard',
   SYSTEM_ADMIN: '/admin',
 };

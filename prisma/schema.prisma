@@ -30,6 +30,8 @@ model Department {
   workplans                   Workplan[]
   submissions                 Submission[]
   delegationsAsSupportingDept Delegation[] @relation("DelegationSupportingDepartment")
+  resolutionsAsResponsible    Resolution[]
+  actionItemsAsResponsible    ActionItem[]
 }
 
 model Role {
@@ -349,6 +351,13 @@ enum MeetingType {
   BOARD
 }
 
+// SCHEDULED/AGENDA_PREPARED/PACK_PREPARED/HELD/CLOSED/CANCELLED are the original SMC-meeting
+// vocabulary (#A9-era). DRAFT/PUBLISHED/IN_PROGRESS/COMPLETED/ARCHIVED were added for #A30's Board
+// Dashboard — the client's spec names exactly these 5 as the Board meeting status set, and
+// "Published" specifically gates Board Member visibility (a Board Member must never see a meeting
+// the Secretariat hasn't published yet), which none of the original 6 values map to cleanly. Kept
+// as one enum (additive, non-breaking) rather than a second parallel type — SMC meetings keep using
+// the original 6 values, Board meetings use the new 5; see #A30's decision log entry.
 enum MeetingStatus {
   SCHEDULED
   AGENDA_PREPARED
@@ -356,6 +365,11 @@ enum MeetingStatus {
   HELD
   CLOSED
   CANCELLED
+  DRAFT
+  PUBLISHED
+  IN_PROGRESS
+  COMPLETED
+  ARCHIVED
 }
 
 model Meeting {
@@ -364,12 +378,84 @@ model Meeting {
   title         String
   meetingNumber String
   meetingDate   DateTime
+  venue         String? // "Venue or meeting link" (#A30) — free text covers both a physical room and a video-call URL
   timezone      String        @default("Pacific/Port_Moresby")
   status        MeetingStatus @default(SCHEDULED)
 
   deadline    Deadline?
   submissions Submission[]
   decisions   Decision[]
+  agendaItems MeetingAgendaItem[]
+  attendance  MeetingAttendance[]
+  minutes     MeetingMinutes[]
+  resolutions Resolution[]
+  actionItems ActionItem[]
+}
+
+// #A30 — one ordered row per Board meeting agenda item, optionally linked to the Board paper it
+// covers. A plain ordered list (not a tree/section hierarchy) — the client's spec describes agenda
+// items as a flat, reorderable set, not nested sections.
+model MeetingAgendaItem {
+  id           String      @id @default(cuid())
+  meetingId    String
+  meeting      Meeting     @relation(fields: [meetingId], references: [id])
+  order        Int
+  title        String
+  description  String?
+  submissionId String?
+  submission   Submission? @relation(fields: [submissionId], references: [id])
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  resolutions Resolution[]
+}
+
+// #A30 — one row per Board Member per meeting. Recorded by the Secretariat, read by everyone with
+// meeting access.
+model MeetingAttendance {
+  id         String   @id @default(cuid())
+  meetingId  String
+  meeting    Meeting  @relation(fields: [meetingId], references: [id])
+  userId     String
+  status     String // ATTENDED | APOLOGY | ABSENT
+  recordedAt DateTime @default(now())
+
+  @@unique([meetingId, userId])
+}
+
+// #A30 — draft/under-review/published minutes for a Board meeting. Multiple rows per meeting are
+// allowed (each upload is a new version, append-only — #A6/#A27's convention — rather than
+// overwriting a single row) with `version` incrementing; the highest-version row is the current one.
+model MeetingMinutes {
+  id           String    @id @default(cuid())
+  meetingId    String
+  meeting      Meeting   @relation(fields: [meetingId], references: [id])
+  version      Int       @default(1)
+  status       String    @default("DRAFT") // DRAFT | UNDER_REVIEW | PUBLISHED
+  storageKey   String
+  fileName     String
+  uploadedById String
+  uploadedAt   DateTime  @default(now())
+  publishedAt  DateTime?
+}
+
+// #A30 — polymorphic comment thread, same generalization pattern already established by AuditEvent
+// (entityType/entityId rather than a separate comments table per commentable model). Replies are a
+// self-relation via parentId. `visibility` controls whether Corporate Secretariat can see a
+// Board-only remark — the client's spec explicitly distinguishes "Board-only visibility" from
+// "Secretariat visibility".
+model Comment {
+  id         String    @id @default(cuid())
+  entityType String // Submission | Resolution | ActionItem | MeetingMinutes
+  entityId   String
+  authorId   String
+  parentId   String?
+  parent     Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies    Comment[] @relation("CommentReplies")
+  body       String
+  visibility String    @default("BOARD_AND_SECRETARIAT") // BOARD_ONLY | BOARD_AND_SECRETARIAT
+  isResolved Boolean   @default(false)
+  createdAt  DateTime  @default(now())
 }
 
 model Deadline {
@@ -470,6 +556,13 @@ model Submission {
   endorsedForBoard         Boolean              @default(false)
   endorsedForBoardAt       DateTime?
   endorsedForBoardById     String?
+  // #A30 — the Board's own final outcome on a Board paper (distinct from individual Board Members'
+  // Decision rows below, and from endorsedForBoard above, which only records the CEO's earlier
+  // "send to Board" call). Set by the Corporate Secretariat once the configured approval rule
+  // (src/lib/board/approvalRules.ts) is satisfied — same shape as endorsedForBoard/-At/-ById.
+  boardOutcome             String?
+  boardOutcomeAt           DateTime?
+  boardOutcomeById         String?
   submittedAt              DateTime?
   createdAt                DateTime             @default(now())
   updatedAt                DateTime             @updatedAt
@@ -482,6 +575,8 @@ model Submission {
   transitions     WorkflowTransition[]
   aiReviewResults AIReviewResult[]
   actionItems     ActionItem[]
+  agendaItems     MeetingAgendaItem[]
+  resolutions     Resolution[]
 }
 
 model SubmissionVersion {
@@ -531,51 +626,97 @@ model WorkflowTransition {
   comment       String?
 }
 
+// #A30 — one row per Board Member's individual vote on a Decision Paper (decisionType values:
+// Approve | Reject | Defer | RequestFurtherInformation | ApproveSubjectToConditions | Abstain |
+// DeclareConflictOfInterest, still a free string — no migration needed to add more later, same
+// reasoning as the original SMC/Board-registry values already listed below). `recordedById` is the
+// deciding Board Member ("User" in the client's spec). Multiple rows per (submissionId,
+// recordedById) are allowed — a changed vote is a new row, not an edit, per this codebase's
+// append-only convention (#A6/#A27) — src/lib/board/decisions.ts reads only the latest per user.
 model Decision {
-  id           String     @id @default(cuid())
-  submissionId String
-  submission   Submission @relation(fields: [submissionId], references: [id])
-  meetingId    String
-  meeting      Meeting    @relation(fields: [meetingId], references: [id])
-  decisionType String // Noted | Endorsed | Deferred | Rejected | EndorsedForBoard | Approved | ReferredBack | Closed
-  decisionDate DateTime
-  recordedById String
-  notes        String?
+  id                String     @id @default(cuid())
+  submissionId      String
+  submission        Submission @relation(fields: [submissionId], references: [id])
+  meetingId         String
+  meeting           Meeting    @relation(fields: [meetingId], references: [id])
+  decisionType      String // Noted | Endorsed | Deferred | Rejected | EndorsedForBoard | Approved | ReferredBack | Closed | Approve | Reject | Defer | RequestFurtherInformation | ApproveSubjectToConditions | Abstain | DeclareConflictOfInterest
+  decisionDate      DateTime
+  recordedById      String
+  notes             String?
+  conditions        String? // "Conditions or follow-up actions" for Approve Subject to Conditions
+  submissionVersion Int? // Submission.currentVersion snapshotted at decision time
 
   resolutions Resolution[]
   actionItems ActionItem[]
 }
 
+// #A30 — extended from a Decision-only concept to also support "create a resolution straight from
+// an agenda item" (the client's own instruction) — decisionId is now optional; meetingId is now
+// direct so a resolution is never orphaned from its meeting even without a formal Decision row.
 model Resolution {
-  id               String   @id @default(cuid())
-  decisionId       String
-  decision         Decision @relation(fields: [decisionId], references: [id])
-  resolutionNumber String   @unique
-  resolutionText   String
-  adoptedAt        DateTime @default(now())
+  id                      String             @id @default(cuid())
+  decisionId              String?
+  decision                Decision?          @relation(fields: [decisionId], references: [id])
+  meetingId               String
+  meeting                 Meeting            @relation(fields: [meetingId], references: [id])
+  agendaItemId            String?
+  agendaItem              MeetingAgendaItem? @relation(fields: [agendaItemId], references: [id])
+  resolutionNumber        String             @unique
+  subject                 String
+  resolutionText          String
+  status                  String             @default("DRAFT") // Draft | Proposed | Approved | Deferred | Rejected | InProgress | Completed | Closed
+  responsiblePersonId     String?
+  responsibleDepartmentId String?
+  responsibleDepartment   Department?        @relation(fields: [responsibleDepartmentId], references: [id])
+  dueDate                 DateTime?
+  submissionId            String?
+  submission              Submission?        @relation(fields: [submissionId], references: [id])
+  followUpNotes           String?
+  adoptedAt               DateTime           @default(now())
+
+  actionItems ActionItem[]
 }
 
+// NOT_STARTED/AT_RISK/COMPLETED/CLOSED added for #A30's Board action tracker (the client's exact
+// 6-value status set: Not Started/In Progress/At Risk/Overdue/Completed/Closed). OPEN/DONE are kept
+// for the original addActionItem call site (src/lib/submissions/review.ts, unrelated to Board
+// actions) — not renamed, to avoid touching that already-working code path.
 enum ActionItemStatus {
   OPEN
   IN_PROGRESS
   DONE
   OVERDUE
+  NOT_STARTED
+  AT_RISK
+  COMPLETED
+  CLOSED
 }
 
 model ActionItem {
-  id           String           @id @default(cuid())
-  decisionId   String?
-  decision     Decision?        @relation(fields: [decisionId], references: [id])
+  id                 String           @id @default(cuid())
+  decisionId         String?
+  decision           Decision?        @relation(fields: [decisionId], references: [id])
   // Direct link so the CEO/Corporate Secretary can attach an action item straight to a paper
   // without first recording a formal Decision — see docs/mvp-directors-portal-plan.md#A18.
-  submissionId String?
-  submission   Submission?      @relation(fields: [submissionId], references: [id])
-  createdById  String?
-  description  String
-  ownerId      String?
-  dueDate      DateTime?
-  status       ActionItemStatus @default(OPEN)
-  createdAt    DateTime         @default(now())
+  submissionId       String?
+  submission         Submission?      @relation(fields: [submissionId], references: [id])
+  // #A30 additions below — the Board action tracker.
+  resolutionId       String?
+  resolution         Resolution?      @relation(fields: [resolutionId], references: [id])
+  sourceMeetingId    String?
+  sourceMeeting      Meeting?         @relation(fields: [sourceMeetingId], references: [id])
+  departmentId       String?
+  department         Department?      @relation(fields: [departmentId], references: [id])
+  progressUpdate     String?
+  evidenceStorageKey String?
+  completionComment  String?
+  createdById        String?
+  description        String
+  ownerId            String?
+  dueDate            DateTime?
+  status             ActionItemStatus @default(OPEN)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 }
 
 // ---------------------------------------------------------------------------

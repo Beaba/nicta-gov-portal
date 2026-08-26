@@ -102,6 +102,41 @@ async function main() {
       category: 'SMC' as const,
       requiresRecommendation: true,
     },
+    // #A30's Board Dashboard spec's exact 5 Board paper types. Board Papers today still inherit
+    // their `paperType` string from the source SMC submission (submitBoardPaper in review.ts) —
+    // these rows exist as configured reference data per the client's "Support these paper types"
+    // requirement, ready for a future Board-paper-type picker, not yet wired to one — see
+    // docs/known-limitations.md.
+    {
+      code: 'BOARD_INFORMATION_PAPER',
+      name: 'Information Paper',
+      category: 'BOARD' as const,
+      requiresRecommendation: false,
+    },
+    {
+      code: 'BOARD_DECISION_PAPER',
+      name: 'Decision Paper',
+      category: 'BOARD' as const,
+      requiresRecommendation: true,
+    },
+    {
+      code: 'BOARD_DISCUSSION_PAPER',
+      name: 'Discussion Paper',
+      category: 'BOARD' as const,
+      requiresRecommendation: false,
+    },
+    {
+      code: 'BOARD_MANAGEMENT_REPORT',
+      name: 'Management Report',
+      category: 'BOARD' as const,
+      requiresRecommendation: false,
+    },
+    {
+      code: 'BOARD_CONFIDENTIAL_PAPER',
+      name: 'Confidential Paper',
+      category: 'BOARD' as const,
+      requiresRecommendation: false,
+    },
   ];
   for (const pt of paperTypeSeeds) {
     await prisma.paperType.upsert({

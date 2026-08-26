@@ -15,13 +15,14 @@ export default async function BoardPapersPage() {
         r.roleCode === 'REVIEWER_SECRETARIAT' ||
         r.roleCode === 'EXECUTIVE_VIEWER' ||
         r.roleCode === 'SYSTEM_ADMIN' ||
-        r.roleCode === 'BOARD_MEMBER',
+        r.roleCode === 'BOARD_MEMBER' ||
+        r.roleCode === 'BOARD_SECRETARIAT',
     )
   ) {
     redirect('/');
   }
 
-  const papers = await listBoardPapers();
+  const papers = await listBoardPapers(user);
 
   return (
     <PortalShell user={user} active="board-papers">

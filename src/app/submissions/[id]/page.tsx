@@ -9,12 +9,24 @@ import { PortalShell } from '@/components/PortalShell';
 import { StatusBadge } from '@/components/StatusBadge';
 import { BoardPaperModal } from '@/components/BoardPaperModal';
 import { ActionItemsSection } from '@/components/ActionItemsSection';
+import { CommentThread } from '@/components/CommentThread';
 import {
   uploadMainDocumentAction,
   uploadAnnexureAction,
   submitSubmissionAction,
 } from '@/app/submissions/[id]/actions';
+import {
+  recordBoardDecisionAction,
+  finalizeBoardOutcomeAction,
+} from '@/app/submissions/[id]/boardActions';
 import { AuthorizationError } from '@/lib/auth/rbac';
+import { getCeoCommentForBoardPaper, suggestBoardOutcome } from '@/lib/board/papers';
+import {
+  listDecisionsForSubmission,
+  getMyLatestDecision,
+  BOARD_DECISION_TYPES,
+} from '@/lib/board/decisions';
+import { isDecisionPaper } from '@/lib/config/paperTypes';
 
 export default async function SubmissionDetailPage({ params }: { params: { id: string } }) {
   const user = await getCurrentUser();
@@ -87,6 +99,34 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
   const boundUploadMain = uploadMainDocumentAction.bind(null, submission.id);
   const boundUploadAnnexure = uploadAnnexureAction.bind(null, submission.id);
   const boundSubmit = submitSubmissionAction.bind(null, submission.id);
+
+  // #A30 — Board-only data, fetched separately so SMC papers (the vast majority of detail-page
+  // views) never pay for these extra queries.
+  const isBoardPaper = submission.submissionCategory === 'BOARD';
+  const isBoardMember = user.roles.some((r) => r.roleCode === 'BOARD_MEMBER');
+  const isBoardSecretariat = user.roles.some(
+    (r) => r.roleCode === 'BOARD_SECRETARIAT' || r.roleCode === 'SYSTEM_ADMIN',
+  );
+  const isBoardAny = isBoardMember || isBoardSecretariat;
+  const paperIsDecisionPaper = isBoardPaper && isDecisionPaper(submission.paperType);
+
+  const [ceoComment, decisions, myLatestDecision, suggestedOutcome] = isBoardPaper
+    ? await Promise.all([
+        getCeoCommentForBoardPaper(submission.smcSourceSubmissionId),
+        listDecisionsForSubmission(submission.id, user).catch(() => []),
+        isBoardMember ? getMyLatestDecision(submission.id, user).catch(() => null) : null,
+        paperIsDecisionPaper ? suggestBoardOutcome(submission.id) : null,
+      ])
+    : [null, [], null, null];
+
+  const decisionAuthorIds = Array.from(new Set(decisions.map((d) => d.recordedById)));
+  const decisionAuthors = decisionAuthorIds.length
+    ? await prisma.user.findMany({ where: { id: { in: decisionAuthorIds } } })
+    : [];
+  const decisionAuthorNameById = new Map(decisionAuthors.map((a) => [a.id, a.name]));
+
+  const boundRecordDecision = recordBoardDecisionAction.bind(null, submission.id);
+  const boundFinalizeOutcome = finalizeBoardOutcomeAction.bind(null, submission.id);
 
   return (
     <PortalShell user={user} active="submissions">
@@ -275,6 +315,135 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
             </div>
           ) : null}
         </section>
+      )}
+
+      {isBoardPaper && ceoComment && (
+        <section className="mt-6 rounded-md border border-status-accent/40 bg-status-accent/5 p-4">
+          <p className="text-sm font-semibold text-status-accent">CEO Comments</p>
+          <p className="mt-1 text-sm text-nicta-neutral-900">{ceoComment.comment}</p>
+          <p className="mt-1 text-xs text-nicta-neutral-700">
+            {ceoComment.recordedAt.toLocaleString()}
+          </p>
+        </section>
+      )}
+
+      {isBoardPaper && submission.boardOutcome && (
+        <section className="mt-6 rounded-md border border-status-success/40 bg-status-success-bg p-4">
+          <p className="text-sm font-semibold text-status-success">
+            Board Outcome: {submission.boardOutcome}
+          </p>
+          <p className="mt-1 text-xs text-nicta-neutral-900">
+            Finalized {submission.boardOutcomeAt?.toLocaleString()}
+          </p>
+        </section>
+      )}
+
+      {isBoardPaper && paperIsDecisionPaper && (
+        <section className="mt-6 rounded-md border border-nicta-neutral-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-nicta-neutral-900">Board Decisions</h2>
+
+          {decisions.length === 0 ? (
+            <p className="mt-2 text-sm text-nicta-neutral-700">No decisions recorded yet.</p>
+          ) : (
+            <ul className="mt-2 space-y-2 text-sm">
+              {decisions.map((d) => (
+                <li key={d.id} className="rounded-md border border-nicta-neutral-200 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold text-nicta-teal-dark">
+                      {decisionAuthorNameById.get(d.recordedById) ?? 'Unknown'} — {d.decisionType}
+                    </p>
+                    <span className="text-xs text-nicta-neutral-700">
+                      {d.decisionDate.toLocaleString()}
+                    </span>
+                  </div>
+                  {d.notes && <p className="mt-1 text-xs text-nicta-neutral-700">{d.notes}</p>}
+                  {d.conditions && (
+                    <p className="mt-1 text-xs text-nicta-neutral-700">
+                      Conditions: {d.conditions}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {isBoardMember && !submission.boardOutcome && (
+            <form
+              action={boundRecordDecision}
+              className="mt-4 space-y-2 border-t border-nicta-neutral-200 pt-4"
+            >
+              {myLatestDecision && (
+                <p className="text-xs text-nicta-neutral-700">
+                  Your last recorded decision: <strong>{myLatestDecision.decisionType}</strong> —
+                  recording again below will supersede it.
+                </p>
+              )}
+              <select name="decisionType" required defaultValue="" className="input">
+                <option value="" disabled>
+                  Select your decision
+                </option>
+                {BOARD_DECISION_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t.replace(/([A-Z])/g, ' $1').trim()}
+                  </option>
+                ))}
+              </select>
+              <textarea
+                name="comment"
+                rows={2}
+                placeholder="Comment (required for Reject, Defer, Request Further Information, or Declare Conflict of Interest)"
+                className="input"
+              />
+              <input
+                name="conditions"
+                placeholder="Conditions (only for Approve Subject to Conditions)"
+                className="input"
+              />
+              <button
+                type="submit"
+                className="rounded-md bg-nicta-charcoal px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+              >
+                Record Decision
+              </button>
+            </form>
+          )}
+
+          {isBoardSecretariat && !submission.boardOutcome && (
+            <form
+              action={boundFinalizeOutcome}
+              className="mt-4 space-y-2 border-t border-nicta-neutral-200 pt-4"
+            >
+              <p className="text-xs text-nicta-neutral-700">
+                Suggested outcome based on decisions so far:{' '}
+                <strong>{suggestedOutcome ?? 'PENDING'}</strong> — review before finalizing; this is
+                not applied automatically.
+              </p>
+              <select name="outcome" required defaultValue="" className="input">
+                <option value="" disabled>
+                  Finalize Board outcome
+                </option>
+                <option value="APPROVED">Approved</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="DEFERRED">Deferred</option>
+              </select>
+              <button
+                type="submit"
+                className="rounded-md bg-nicta-charcoal px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+              >
+                Finalize Outcome
+              </button>
+            </form>
+          )}
+        </section>
+      )}
+
+      {isBoardAny && (
+        <CommentThread
+          entityType="Submission"
+          entityId={submission.id}
+          redirectPath={`/submissions/${submission.id}`}
+          actingUser={user}
+        />
       )}
 
       <ActionItemsSection

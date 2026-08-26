@@ -773,3 +773,128 @@ notification provider.
   afterward; confirmed zero remaining via a direct DB count.
 - **Typecheck/lint clean throughout** (`npx tsc --noEmit`, `npx next lint`), production build
   succeeds (`next build`), Prettier-formatted.
+
+## A30 — Board Dashboard module: meetings, decisions, comments, resolutions, minutes, actions (2026-08-26)
+
+The client's Board Dashboard spec was implemented as a real, integrated module rather than a
+planning document — it reuses the existing `Submission`/`Meeting`/`Decision`/`Resolution`/
+`ActionItem` models (extended, not replaced) and the existing provider/audit/RBAC patterns
+throughout, per the client's own "inspect the existing codebase and integrate" instruction.
+Excluded per the client's own explicit list: advanced analytics, CEO delegation workflows (already
+built separately, `#A29`), WhatsApp, e-signatures, video conferencing — none of this pass touches
+those.
+
+- **Schema is additive only** (`prisma/migrations/20260826004809_add_board_dashboard`): new models
+  `MeetingAgendaItem`, `MeetingAttendance`, `MeetingMinutes`, `Comment` (a polymorphic
+  `entityType`/`entityId` thread — same generalization pattern `AuditEvent` already established,
+  reused rather than inventing a comments table per commentable model); extended `Meeting` (new
+  `venue` field, 5 new `MeetingStatus` enum values — `DRAFT`/`PUBLISHED`/`IN_PROGRESS`/`COMPLETED`/
+  `ARCHIVED` — added alongside the original 6 SMC-meeting values, not replacing them, since
+  `MeetingStatus` is shared by both meeting types); extended `Decision` (`conditions`,
+  `submissionVersion`) to also carry individual Board Members' votes on Decision Papers, not just
+  the original formal SMC/Board registry entry it was designed for; extended `Resolution`
+  (`decisionId` now nullable, plus `meetingId`/`agendaItemId`/`subject`/`status`/
+  `responsiblePersonId`/`responsibleDepartmentId`/`dueDate`/`submissionId`/`followUpNotes`) so a
+  resolution can be created directly from an agenda item without first recording a formal Decision,
+  per the client's own instruction; extended `ActionItem` (`resolutionId`, `sourceMeetingId`,
+  `departmentId`, `progressUpdate`, `evidenceStorageKey`, `completionComment`, `updatedAt`) and
+  `ActionItemStatus` (added `NOT_STARTED`/`AT_RISK`/`COMPLETED`/`CLOSED` alongside the original
+  `OPEN`/`IN_PROGRESS`/`DONE`/`OVERDUE`, which stay in use by the pre-existing, unrelated
+  `addActionItem` call site in `review.ts`); extended `Submission` with `boardOutcome`/-`At`/-`ById`
+  (the Board's own final outcome on a Decision Paper — same shape as the existing
+  `endorsedForBoard`/-`At`/-`ById` triple, deliberately kept distinct from it: `endorsedForBoard` is
+  the CEO's earlier "send to Board" call, `boardOutcome` is the Board's own decision once it gets
+  there). One migration hiccup: `ActionItem.updatedAt` couldn't be added as a required column
+  against the one pre-existing row without a default — fixed by hand-editing the generated
+  migration to add `DEFAULT CURRENT_TIMESTAMP` for the backfill, the standard resolution for this
+  situation (Prisma's own `@updatedAt` columns get this automatically when created against an empty
+  table; this one wasn't empty).
+- **Decision is now dual-purpose**: it already existed as a single formal SMC/Board registry entry
+  (`decisionType: Noted | Endorsed | ...`); this pass reuses the same table for individual Board
+  Members' votes (`decisionType: Approve | Reject | Defer | RequestFurtherInformation |
+ApproveSubjectToConditions | Abstain | DeclareConflictOfInterest`) rather than adding a parallel
+  `BoardVote` model — both are "a recorded decision, by someone, on a submission, at a meeting,"
+  and multiple rows per (submissionId, recordedById) are allowed by design: a changed vote is a new
+  row, not an edit, matching this codebase's append-only convention (`#A6`/`#A27`) — the _latest_
+  row per user is what `approvalRules.ts` and the UI treat as authoritative, older rows stay as
+  history.
+- **No automatic quorum/majority computation.** The client's spec explicitly says "keep the
+  approval rules configurable so quorum and voting logic can be expanded later," and this codebase
+  has no Board-membership-roster/quorum-size concept anywhere to compute real quorum against.
+  `src/lib/board/approvalRules.ts`'s `evaluateBoardOutcome()` is a deliberately simple, isolated,
+  clearly-labeled placeholder rule (any Reject blocks; else any Defer; else any
+  RequestFurtherInformation; else any Approve/ApproveSubjectToConditions passes) that only ever
+  _suggests_ an outcome — the Board Secretariat still manually finalizes via
+  `finalizeBoardOutcome()`, which is never auto-invoked. Swapping in real quorum/majority math later
+  is a one-file change.
+- **Access control tightened, and one real gap found and fixed while live-verifying**:
+  `assertCanAccessSubmission` (`src/lib/submissions/submissions.ts`) previously let _any_ Board
+  Member view _any_ Board Paper regardless of its meeting's status — this pass gates that on the
+  linked meeting being `PUBLISHED` or later, matching "View published Board meetings." While
+  verifying the CEO-comment/decision/finalize flow live, discovered `BOARD_SECRETARIAT` had **no**
+  access path at all to view a Board Paper (the function only recognized `REVIEWER_SECRETARIAT`/
+  `SYSTEM_ADMIN`/`EXECUTIVE_VIEWER`/`BOARD_MEMBER` — `BOARD_SECRETARIAT` is a distinct role from
+  `REVIEWER_SECRETARIAT` and had been missed entirely) — fixed by adding a Board-Secretariat access
+  class scoped to `BOARD` submissions (not published-gated, since the Secretariat prepares the
+  meeting before it's published). The same missing role was also fixed on `/board-papers`'s page
+  guard and `listBoardPapers()`'s visibility filter.
+- **CEO comments surfaced on Board Papers without a new field**: there is no dedicated column for
+  the CEO's Board-vetting comment (`#A27` only ever recorded it inside an `AuditEvent`'s JSON
+  `newState`); `getCeoCommentForBoardPaper()` reads it back out via the source SMC submission's
+  `SUBMISSION_ENDORSED_FOR_BOARD`/`SUBMISSION_NOT_VETTED_FOR_BOARD` audit events. "Corporate
+  Secretariat status" (a separate client field request) is satisfied by the pre-existing link to
+  the source SMC submission — its own completeness-check outcome/comment is visible there — rather
+  than duplicating it onto the Board Paper.
+- **Board paper types seeded but not yet selectable.** The client's exact 5 names (Information/
+  Decision/Discussion Paper, Management Report, Confidential Paper) are seeded as `category: BOARD`
+  `PaperType` rows (`prisma/seed.ts`), satisfying "support these paper types" as configured
+  reference data. `submitBoardPaper()` (`review.ts`) still inherits `paperType` from the source SMC
+  submission rather than offering a picker — extending that Director-facing flow was judged
+  out of scope for a Board-Member/Secretariat-focused module; see known-limitations.md.
+- **Comments are a new generic model**, reused across Board Papers (`Submission`), `Resolution`,
+  and `MeetingMinutes` in this pass (`ActionItem` and `MeetingAgendaItem` are supported by the
+  model/service layer already but have no comment UI wired up yet — a small follow-up, not a schema
+  change). `visibility: BOARD_ONLY` is enforced at read time in `listComments`/`CommentThread`, not
+  by restricting who can create it — any Board-role user can mark their own comment Board-only.
+  `CommentThread.tsx` is a Server Component, not a Client Component: every reply box renders always-
+  visible rather than toggled open specifically so it never needs to pass a function prop across a
+  Server/Client boundary (the exact mistake hit and fixed live during `#A28`).
+- **New Board nav is one shared list for both Board roles** (`BoardNav` in `PortalSidebar.tsx`),
+  not two distinct navs the way `#A29` built for CEO/Secretariat — the client's Board Dashboard spec
+  describes different _dashboard content and actions_ per role (which `/board/dashboard` and every
+  Board page already branch on), not a different _navigation structure_, so `#A29`'s "don't use one
+  generic sidebar" instruction doesn't apply the same way here. Every item in `BoardNav` is a real,
+  working link — no disabled placeholders were needed for this module's own scope.
+- **Mistake made during test-data cleanup, disclosed not hidden** (matching the `#A26` precedent):
+  while removing test-created rows after live verification, a cleanup query against
+  `WorkflowTransition` used an insufficiently-scoped condition (`delegationId IS NULL AND
+submissionId IS NULL AND activityId IS NULL`, intended to catch orphaned rows with none of the
+  three FKs set) without first previewing it with a `SELECT`. It matched and deleted **17
+  pre-existing rows**, not the 0 expected — no code path in this codebase (checked
+  `submissions/workflow.ts`, `delegations/workflow.ts`, `seed.ts`) creates a `WorkflowTransition`
+  row with all three FKs null, so what these rows represented could not be determined after the
+  fact, and they are **not recoverable** (no soft-delete in this schema). Confirmed no functional
+  data was affected — `WorkflowTransition` is a pure audit/history table, every `Submission`'s
+  current `workflowStatus` and all other live data were verified intact immediately after — but
+  this is a genuine, disclosed loss of historical audit-trail rows, contrary to this project's
+  explicit append-only convention. No mitigation beyond disclosure and the discipline going forward
+  of always previewing a delete's match set with `SELECT` before running it.
+- **Verified live**: two throwaway Playwright scripts (deleted after the run) drove the real dev
+  server through the full lifecycle on real seed accounts — Secretariat creating and publishing a
+  meeting, a Board Member seeing it on their dashboard, Secretariat creating a resolution and an
+  action from the meeting, a Board Member browsing the resolutions/actions/archive registers; a
+  second pass (against a manually-inserted test Decision Paper, since no seeded Board paper was
+  linked to a published meeting) verified a Board Member recording a decision and posting a
+  comment, then the Secretariat seeing the suggested outcome and finalizing it — 12/12 and 6/6
+  checks passed respectively. All test-created rows confirmed deleted afterward via direct DB
+  counts.
+- **Automated tests**: `tests/unit/board/boardDashboard.test.ts`, 21 integration-style tests
+  (real Postgres, no mocking — this project's first committed automated test file) covering the
+  client's own acceptance-criterion categories: permissions, paper/meeting visibility, approvals,
+  comments (including reply-threading and `BOARD_ONLY` visibility filtering), resolutions (status
+  transition validity), and audit history. `vitest.config.ts` needed a `loadEnv` addition — Vitest
+  doesn't load `.env` automatically the way Next.js does, so `DATABASE_URL` was previously unset for
+  any test run (there were no test files before this pass to notice).
+- **Typecheck/lint/tests/production build all clean** before this entry was written — `npx tsc
+--noEmit`, `npx next lint`, `npm test` (21/21), `next build`, per the client's own closing
+  requirement.

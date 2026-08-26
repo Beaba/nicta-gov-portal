@@ -26,6 +26,8 @@ export interface StoredDocumentMetadata {
  *   BOARD_ANNEXURE      .../{ref}_{slug}/02_Annexures/          (carried over from the SMC source)
  *                          {DeptFolder}_{meetingDate}_{meetingNumber}_{ref}_ANNEX-{A,B,...}.ext
  *   BOARD_SMC_SOURCE    .../{ref}_{slug}/03_SMC_Source/Source-Reference.txt (fixed name, verbatim)
+ *   BOARD_MINUTES       Governance Papers/02_Board_Papers/{year}/BOARD_{meetingDate}/02_Minutes/
+ *                          {DeptFolder-less: meetingNumber}_{meetingDate}_Minutes_v{n}.ext (#A30)
  *
  * The {DeptFolder}_{meetingDate}_{meetingNumber}_ file-name prefix (department name, SMC/Board
  * meeting date, and "sitting number" — the client's own file-naming requirement) is distinct from
@@ -40,7 +42,8 @@ export type DocumentPlacementKind =
   | 'SMC_REVIEWED_OUTPUT'
   | 'BOARD_MAIN'
   | 'BOARD_ANNEXURE'
-  | 'BOARD_SMC_SOURCE';
+  | 'BOARD_SMC_SOURCE'
+  | 'BOARD_MINUTES';
 
 /**
  * Provider-agnostic description of where one file belongs — both DocumentStorageProvider
@@ -90,6 +93,9 @@ export interface DocumentPlacementMetadata {
    * letter (0 -> A, 1 -> B, ...) for the "_ANNEX-{letter}" file name suffix. Only used by
    * SMC_ANNEXURE/BOARD_ANNEXURE. */
   annexureOrder?: number;
+  /** MeetingMinutes.version — folded into the destination file name so re-uploaded draft/final
+   * versions never collide. Only used by BOARD_MINUTES; defaults to 1 if omitted. */
+  version?: number;
   /** The file being filed. Its extension is preserved into the computed canonical destination
    * name for every kind except TEMPLATE and BOARD_SMC_SOURCE, which use this value verbatim as
    * the destination file name (the template's own approved file name, or "Source-Reference.txt"

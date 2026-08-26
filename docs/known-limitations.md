@@ -130,3 +130,36 @@ both Director and Corporate Services Director roles could use it.
   There is no Director -> Manager delegation chain, no delegation evidence upload UI yet (the schema
   supports it — `Evidence.delegationId` — but no upload form calls it), and no automatic `OVERDUE`
   transition (computed at read time instead — see `#A29`'s decision log entry for why).
+- **No real quorum/majority calculation for Board decisions** (`#A30`). No Board-membership-roster/
+  quorum-size concept exists anywhere in this codebase; `src/lib/board/approvalRules.ts`'s
+  `evaluateBoardOutcome()` is a deliberately simple placeholder (any Reject blocks, else any Defer,
+  else any RequestFurtherInformation, else any Approve passes) that only ever suggests an outcome —
+  the Board Secretariat always finalizes manually. Real quorum/majority logic is a one-file change
+  to that module once the client specifies the actual voting rules.
+- **Board Paper types are seeded but not selectable.** `#A30` seeded the client's exact 5 Board
+  paper type names as `category: BOARD` `PaperType` rows, but `submitBoardPaper()`
+  (`src/lib/submissions/review.ts`) still inherits `paperType` from the source SMC submission — a
+  Director-facing picker for these 5 types was judged out of scope for a Board-Member/Secretariat-
+  focused module and wasn't built.
+- **Comment UI isn't wired up on every commentable entity yet.** The `Comment` model and
+  `listComments`/`addComment` (`src/lib/board/comments.ts`) already support `MeetingAgendaItem` and
+  `ActionItem` as `entityType` values, but only `Submission` (Board Papers), `Resolution`, and
+  `MeetingMinutes` have a `<CommentThread>` actually rendered on their pages — adding it to agenda
+  items and action items is a small follow-up, not a schema or service-layer change.
+- **No email delivery for Board notifications**, same gap as `#A27`'s CEO comments — every Board
+  event (meeting published, minutes ready for review, decision required, resolution assigned)
+  fires through the existing in-app `NotificationProvider` only; the mock provider is what's wired
+  up locally. Real email needs the same `NOTIFICATION_PROVIDER=graph` deployment step already
+  documented above, nothing Board-specific to add.
+- **No read/download tracking on Board documents.** The client's spec asks for "read and download
+  tracking" as a security/audit control; this pass records every substantive Board action (meeting
+  created, decision recorded, comment added, minutes published, etc.) via the existing
+  `AuditEvent`/`recordAuditEvent` pattern, but does not log a distinct event purely for _viewing_ or
+  _downloading_ an already-published paper/minutes file — that would need an event on every
+  document-serving request (`/api/documents/local/[...key]`), not just on state-changing actions,
+  and was judged a distinct, separate feature from this pass's scope.
+- **No session-timeout or former-Board-Member-specific access control beyond the existing
+  `User.isActive` gate.** A deactivated Board Member's account already can't sign in (the same
+  `isActive` check every account in this app goes through — `#A3`), which satisfies "restricted
+  access for inactive or former Board Members" at the account level; there is no additional
+  Board-specific session-timeout policy beyond `iron-session`'s existing cookie expiry.

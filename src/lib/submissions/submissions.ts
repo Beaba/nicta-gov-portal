@@ -26,7 +26,10 @@ export interface CreateSubmissionInput {
   responsibleManagerId?: string;
 }
 
-function assertCanAccessSubmission(submission: Submission, user: AuthenticatedUser): void {
+async function assertCanAccessSubmission(
+  submission: Submission,
+  user: AuthenticatedUser,
+): Promise<void> {
   const isOwner = submission.createdById === user.id;
   // CEO ("reviews and reads") gets org-wide read access alongside the Corporate Secretary/Admin —
   // see docs/mvp-directors-portal-plan.md#A18.
@@ -36,12 +39,33 @@ function assertCanAccessSubmission(submission: Submission, user: AuthenticatedUs
       r.roleCode === 'SYSTEM_ADMIN' ||
       r.roleCode === 'EXECUTIVE_VIEWER',
   );
+  // #A30: Board Secretariat manages Board Papers (finalizes outcomes, sees CEO comments) — same
+  // access class as hasOversight above, but scoped to BOARD papers only, mirroring how Board
+  // Members below are scoped. Not published-gated (unlike Board Members) since the Secretariat is
+  // the one publishing/preparing the meeting in the first place.
+  const isBoardSecretariatOnBoardPaper =
+    submission.submissionCategory === 'BOARD' &&
+    user.roles.some((r) => r.roleCode === 'BOARD_SECRETARIAT');
   // Board Members get read-only access to Board Papers only — never SMC papers, which stay
   // internal to Directors/Corporate Secretary/CEO. Deliberately narrower than hasOversight above.
-  const isBoardMemberOnBoardPaper =
+  // #A30: additionally gated on the linked meeting being published or later — a Board Member must
+  // not see a paper attached to a still-DRAFT (Secretariat-internal working) meeting, matching
+  // "View published Board meetings." A paper with no linked meeting yet is not visible either
+  // (fails closed here, unlike the "fail open" convention used for late-submission/overdue checks —
+  // those are display-only flags, this is an access-control gate).
+  let isBoardMemberOnBoardPaper = false;
+  if (
     submission.submissionCategory === 'BOARD' &&
-    user.roles.some((r) => r.roleCode === 'BOARD_MEMBER');
-  if (!isOwner && !hasOversight && !isBoardMemberOnBoardPaper) {
+    user.roles.some((r) => r.roleCode === 'BOARD_MEMBER')
+  ) {
+    if (submission.meetingId) {
+      const meeting = await prisma.meeting.findUnique({ where: { id: submission.meetingId } });
+      isBoardMemberOnBoardPaper = Boolean(
+        meeting && ['PUBLISHED', 'IN_PROGRESS', 'COMPLETED', 'ARCHIVED'].includes(meeting.status),
+      );
+    }
+  }
+  if (!isOwner && !hasOversight && !isBoardSecretariatOnBoardPaper && !isBoardMemberOnBoardPaper) {
     throw new AuthorizationError('No access to this submission');
   }
 }
@@ -129,7 +153,7 @@ export async function uploadMainDocument(
   actingUser: AuthenticatedUser,
 ): Promise<Submission> {
   const submission = await prisma.submission.findUniqueOrThrow({ where: { id: submissionId } });
-  assertCanAccessSubmission(submission, actingUser);
+  await assertCanAccessSubmission(submission, actingUser);
   if (submission.createdById !== actingUser.id) {
     throw new AuthorizationError('Only the submission owner may upload the main document');
   }
@@ -476,7 +500,7 @@ export async function getSubmissionForUser(
   actingUser: AuthenticatedUser,
 ): Promise<Submission> {
   const submission = await prisma.submission.findUniqueOrThrow({ where: { id: submissionId } });
-  assertCanAccessSubmission(submission, actingUser);
+  await assertCanAccessSubmission(submission, actingUser);
   return submission;
 }
 

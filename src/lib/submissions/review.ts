@@ -415,11 +415,30 @@ export async function submitBoardPaper(
   return boardPaper;
 }
 
-export async function listBoardPapers(): Promise<
-  (Submission & { smcSourceSubmission: Submission | null })[]
-> {
+// #A30: a Board Member only sees Board Papers attached to a published (or later) Board meeting —
+// same visibility boundary as assertCanAccessSubmission in submissions.ts, applied here too since
+// this register lists many papers at once rather than checking access to a single one.
+export async function listBoardPapers(
+  actingUser?: AuthenticatedUser,
+): Promise<(Submission & { smcSourceSubmission: Submission | null })[]> {
+  const isBoardMemberOnly =
+    actingUser !== undefined &&
+    actingUser.roles.some((r) => r.roleCode === 'BOARD_MEMBER') &&
+    !actingUser.roles.some(
+      (r) =>
+        r.roleCode === 'REVIEWER_SECRETARIAT' ||
+        r.roleCode === 'SYSTEM_ADMIN' ||
+        r.roleCode === 'EXECUTIVE_VIEWER' ||
+        r.roleCode === 'BOARD_SECRETARIAT',
+    );
+
   return prisma.submission.findMany({
-    where: { submissionCategory: 'BOARD' },
+    where: {
+      submissionCategory: 'BOARD',
+      ...(isBoardMemberOnly
+        ? { meeting: { status: { in: ['PUBLISHED', 'IN_PROGRESS', 'COMPLETED', 'ARCHIVED'] } } }
+        : {}),
+    },
     include: { smcSourceSubmission: true },
     orderBy: { submittedAt: 'desc' },
   });

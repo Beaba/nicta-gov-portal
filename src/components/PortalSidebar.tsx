@@ -44,6 +44,9 @@ export async function PortalSidebar({
   const isCeo = user.roles.some((r) => r.roleCode === 'EXECUTIVE_VIEWER');
   const isSecretariat = user.roles.some((r) => r.roleCode === 'REVIEWER_SECRETARIAT');
   const isDirector = user.roles.some((r) => r.roleCode === 'SUBMITTER');
+  const isBoard = user.roles.some(
+    (r) => r.roleCode === 'BOARD_MEMBER' || r.roleCode === 'BOARD_SECRETARIAT',
+  );
 
   const [department, portalRoleName] = await Promise.all([
     user.departmentId
@@ -56,6 +59,7 @@ export async function PortalSidebar({
           'REVIEWER_SECRETARIAT',
           'EXECUTIVE_VIEWER',
           'BOARD_MEMBER',
+          'BOARD_SECRETARIAT',
           'SYSTEM_ADMIN',
         ].includes(r.roleCode),
       )?.roleName,
@@ -71,6 +75,8 @@ export async function PortalSidebar({
           <CeoNav active={active} />
         ) : isSecretariat ? (
           <SecretariatNav active={active} />
+        ) : isBoard ? (
+          <BoardNav active={active} />
         ) : (
           <DefaultNav primaryHref={primaryHref} active={active} isDirector={isDirector} />
         )}
@@ -466,6 +472,87 @@ function SecretariatNav({ active }: { active?: string }) {
       </li>
       <li>
         <DisabledSidebarLink label="Department Reporting Compliance" icon={ChartIcon} />
+      </li>
+
+      <SectionLabel>Settings</SectionLabel>
+      <li>
+        <DisabledSidebarLink label="Settings" icon={SettingsIcon} />
+      </li>
+      <li>
+        <SignOutButton />
+      </li>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Board Member / Board Secretariat — #A30. One shared nav for both roles (the client's Board
+// Dashboard spec, unlike #A29's CEO/Secretariat spec, describes different *dashboard content and
+// actions* per role, not a different *navigation structure* — so this stays one nav, differentiated
+// inside each page the same way /review-queue and /delegations already differentiate CEO vs
+// Secretariat content on one route). Real links only — every item here has a working destination.
+// ---------------------------------------------------------------------------
+function BoardNav({ active }: { active?: string }) {
+  return (
+    <>
+      <SectionLabel>Overview</SectionLabel>
+      <li>
+        <SidebarLink
+          href="/board/dashboard"
+          label="Board Dashboard"
+          icon={HomeIcon}
+          active={!active || active === 'board-dashboard'}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/notifications"
+          label="Notifications"
+          icon={BellIcon}
+          active={active === 'notifications'}
+        />
+      </li>
+
+      <SectionLabel>Board</SectionLabel>
+      <li>
+        <SidebarLink
+          href="/board/meetings"
+          label="Board Meetings"
+          icon={CalendarIcon}
+          active={active === 'board-meetings'}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/board-papers"
+          label="Board Papers"
+          icon={PaperPlaneIcon}
+          active={active === 'board-papers'}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/board/resolutions"
+          label="Resolutions"
+          icon={ShieldCheckIcon}
+          active={active === 'board-resolutions'}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/board/actions"
+          label="Action Tracker"
+          icon={ChartIcon}
+          active={active === 'board-actions'}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/board/archive"
+          label="Board Archive"
+          icon={ArchiveIcon}
+          active={active === 'board-archive'}
+        />
       </li>
 
       <SectionLabel>Settings</SectionLabel>
