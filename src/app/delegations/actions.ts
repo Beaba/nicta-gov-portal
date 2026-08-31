@@ -30,6 +30,11 @@ export async function createDelegationAction(formData: FormData): Promise<Create
   const requiredEvidence = String(formData.get('requiredEvidence') ?? '').trim() || undefined;
   const confidentiality = (String(formData.get('confidentiality') ?? 'INTERNAL') ||
     'INTERNAL') as ConfidentialityLevel;
+  const category = String(formData.get('category') ?? '') || undefined;
+  const completionRequirement =
+    (String(formData.get('completionRequirement') ?? 'EVIDENCE') as 'EVIDENCE' | 'ACKNOWLEDGEMENT_ONLY') ||
+    'EVIDENCE';
+  const additionalRecipientUserIds = formData.getAll('additionalRecipientUserIds').map(String).filter(Boolean);
 
   if (!responsibleDirectorId) return { error: 'Select the responsible Director.' };
   if (!startDateRaw || !dueDateRaw) return { error: 'Enter a start date and a due date.' };
@@ -48,6 +53,9 @@ export async function createDelegationAction(formData: FormData): Promise<Create
         expectedOutcome,
         requiredEvidence,
         confidentiality,
+        category,
+        completionRequirement,
+        additionalRecipientUserIds,
       },
       user,
     );

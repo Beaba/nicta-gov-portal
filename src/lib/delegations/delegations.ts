@@ -39,6 +39,12 @@ export interface CreateDelegationInput {
   expectedOutcome: string;
   requiredEvidence?: string;
   confidentiality?: ConfidentialityLevel;
+  // #A32 — one of DELEGATION_CATEGORIES; additional accountable-lead-adjacent Directors/a Manager
+  // the CEO assigns directly (the responsible Director stays automatically notified — see
+  // addDelegationRecipients below).
+  category?: string;
+  completionRequirement?: 'EVIDENCE' | 'ACKNOWLEDGEMENT_ONLY';
+  additionalRecipientUserIds?: string[];
 }
 
 export async function createDelegation(
@@ -77,6 +83,8 @@ export async function createDelegation(
       expectedOutcome: input.expectedOutcome,
       requiredEvidence: input.requiredEvidence,
       confidentiality: input.confidentiality,
+      category: input.category,
+      completionRequirement: input.completionRequirement ?? 'EVIDENCE',
       createdById: actingUser.id,
       status: 'DRAFT',
     },
@@ -91,7 +99,112 @@ export async function createDelegation(
     correlationRef: referenceNumber,
   });
 
+  // #A32 — "several Directors with one accountable lead" / "a Manager, with the responsible
+  // Director automatically notified": additional recipients beyond responsibleDirectorId (the
+  // accountable lead) are notified rows, not independent state-machine actors — see
+  // DelegationRecipient's schema comment.
+  const additional = input.additionalRecipientUserIds ?? [];
+  if (input.supportingManagerId) additional.push(input.supportingManagerId);
+  for (const userId of new Set(additional)) {
+    if (userId === input.responsibleDirectorId) continue;
+    await prisma.delegationRecipient.create({
+      data: { delegationId: delegation.id, userId, addedById: actingUser.id },
+    });
+  }
+
   return delegation;
+}
+
+/** Notifies every additional recipient once the delegation is issued (mirrors issueDelegation's
+ * own notification to the accountable lead) — kept separate so createDelegation stays a pure
+ * DRAFT-only write, matching the existing Draft->Issued split (NewDelegationModal's own comment). */
+export async function notifyDelegationRecipients(delegationId: string): Promise<void> {
+  const delegation = await prisma.delegation.findUniqueOrThrow({
+    where: { id: delegationId },
+    include: { recipients: true },
+  });
+  await Promise.all(
+    delegation.recipients.map((r) =>
+      getNotificationProvider().notify({
+        userId: r.userId,
+        type: 'DELEGATION_RECIPIENT_NOTIFIED',
+        message: `You were named on CEO delegation ${delegation.referenceNumber}: "${delegation.title}" (accountable lead: see delegation).`,
+        linkUrl: `/delegations/${delegation.id}`,
+      }),
+    ),
+  );
+}
+
+/** Director's "Nominate an Alternate" — records the nomination as a note (comment logged on the
+ * transition timeline) rather than reassigning `responsibleDirectorId`, since the CEO must confirm
+ * an alternate before the accountable lead actually changes; that confirmation is a separate,
+ * explicit CEO action (extendDelegationDueDate-style small write) left for the CEO to action from
+ * the notification this raises, not automatic. */
+export async function nominateDelegationAlternate(
+  delegationId: string,
+  actingUser: AuthenticatedUser,
+  alternateUserId: string,
+  comment: string,
+): Promise<void> {
+  requireAnyRole(actingUser, DIRECTOR_ROLES);
+  if (!comment.trim()) {
+    throw new DelegationValidationError('Explain why an alternate is being nominated.');
+  }
+  const delegation = await requireDelegation(delegationId);
+  assertIsResponsibleDirector(delegation, actingUser);
+  const alternate = await prisma.user.findUnique({ where: { id: alternateUserId } });
+  if (!alternate) throw new DelegationValidationError('Select a valid alternate.');
+
+  await recordDelegationNote({
+    delegation,
+    performedById: actingUser.id,
+    action: 'DELEGATION_ALTERNATE_NOMINATED',
+    comment: `Nominated ${alternate.name} as an alternate: ${comment}`,
+  });
+
+  await getNotificationProvider().notify({
+    userId: delegation.createdById,
+    type: 'DELEGATION_ALTERNATE_NOMINATED',
+    message: `${actingUser.name} nominated ${alternate.name} as an alternate for ${delegation.referenceNumber}: ${comment}`,
+    linkUrl: `/delegations/${delegation.id}`,
+  });
+}
+
+/** Director's "Assign to Manager" — adds the Manager as a DelegationRecipient (notified,
+ * visible), keeping the Director as accountable lead throughout, per the client's own "a Director
+ * who subsequently assigns to a Manager" description (the Director stays responsible; the Manager
+ * becomes a working recipient, not a new accountable lead). */
+export async function assignDelegationToManager(
+  delegationId: string,
+  actingUser: AuthenticatedUser,
+  managerId: string,
+  comment?: string,
+): Promise<void> {
+  requireAnyRole(actingUser, DIRECTOR_ROLES);
+  const delegation = await requireDelegation(delegationId);
+  assertIsResponsibleDirector(delegation, actingUser);
+  const manager = await prisma.user.findUnique({ where: { id: managerId } });
+  if (!manager) throw new DelegationValidationError('Select a valid Manager.');
+
+  await prisma.delegationRecipient.upsert({
+    where: { delegationId_userId: { delegationId, userId: managerId } },
+    update: {},
+    create: { delegationId, userId: managerId, recipientRole: 'MANAGER', addedById: actingUser.id },
+  });
+
+  await recordDelegationNote({
+    delegation,
+    performedById: actingUser.id,
+    action: 'DELEGATION_ASSIGNED_TO_MANAGER',
+    comment: `Assigned to Manager ${manager.name} for execution.${comment ? ` ${comment}` : ''}`,
+  });
+
+  await getNotificationProvider().notify({
+    userId: managerId,
+    type: 'DELEGATION_ASSIGNED_TO_MANAGER',
+    message: `${actingUser.name} assigned you to work on delegation ${delegation.referenceNumber}: "${delegation.title}".`,
+    linkUrl: `/delegations/${delegation.id}`,
+  });
 }
 
 async function requireDelegation(delegationId: string): Promise<Delegation> {
@@ -200,6 +313,21 @@ export async function submitDelegationForReview(
   requireAnyRole(actingUser, DIRECTOR_ROLES);
   const delegation = await requireDelegation(delegationId);
   assertIsResponsibleDirector(delegation, actingUser);
+
+  // #A32 — "A completed delegation must include evidence, comments or a report" /
+  // Delegation.completionRequirement ("Completion requires: Evidence or Report |
+  // Acknowledgement Only"). Checked here (submission for CEO review), not on completeDelegation
+  // itself, since completion is the CEO's own action — the Director-side gate is what stops an
+  // empty submission from ever reaching the CEO.
+  if (delegation.completionRequirement === 'EVIDENCE') {
+    const evidenceCount = await prisma.evidence.count({ where: { delegationId } });
+    if (evidenceCount === 0 && !comment?.trim()) {
+      throw new DelegationValidationError(
+        'This delegation requires evidence or a report before it can be submitted for review.',
+      );
+    }
+  }
+
   const updated = await transitionDelegation({
     delegation,
     toState: 'SUBMITTED_FOR_REVIEW',

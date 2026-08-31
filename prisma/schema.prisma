@@ -33,6 +33,10 @@ model Department {
   resolutionsAsResponsible    Resolution[]
   actionItemsAsResponsible    ActionItem[]
   performanceSnapshots        DepartmentPerformance[]
+  milestones                  Milestone[]
+  weeklyReports               WeeklyManagerReport[]
+  directorSummaries           DirectorSummary[]
+  memos                       Memo[]
 }
 
 model Role {
@@ -67,6 +71,8 @@ model ReportingPeriod {
 
   updates               ActivityUpdate[]
   departmentPerformance DepartmentPerformance[]
+  weeklyReports         WeeklyManagerReport[]
+  directorSummaries     DirectorSummary[]
 }
 
 // #A31 — a minimal per-department-per-period performance snapshot backing the CEO Dashboard's KPI/
@@ -153,18 +159,27 @@ model User {
 
   roles                        UserRole[]
   responsibleActivities        Activity[]
-  workplansAsDirector          Workplan[]       @relation("WorkplanDirector")
-  workplansAsManager           Workplan[]       @relation("WorkplanManager")
+  workplansAsDirector          Workplan[]            @relation("WorkplanDirector")
+  workplansAsManager           Workplan[]            @relation("WorkplanManager")
   activityUpdatesSubmitted     ActivityUpdate[]
-  submissionsCreated           Submission[]     @relation("SubmissionCreatedBy")
-  submissionsAsSponsorDirector Submission[]     @relation("SubmissionSponsorDirector")
-  submissionsAsResponsibleMgr  Submission[]     @relation("SubmissionSponsorManager")
+  submissionsCreated           Submission[]          @relation("SubmissionCreatedBy")
+  submissionsAsSponsorDirector Submission[]          @relation("SubmissionSponsorDirector")
+  submissionsAsResponsibleMgr  Submission[]          @relation("SubmissionSponsorManager")
   evidenceUploaded             Evidence[]
   auditEvents                  AuditEvent[]
   notifications                Notification[]
-  delegationsCreated           Delegation[]     @relation("DelegationCreatedBy")
-  delegationsAsDirector        Delegation[]     @relation("DelegationDirector")
-  delegationsAsSupportingMgr   Delegation[]     @relation("DelegationSupportingManager")
+  delegationsCreated           Delegation[]          @relation("DelegationCreatedBy")
+  delegationsAsDirector        Delegation[]          @relation("DelegationDirector")
+  delegationsAsSupportingMgr   Delegation[]          @relation("DelegationSupportingManager")
+  delegationRecipientRows      DelegationRecipient[]
+  milestonesAsResponsible      Milestone[]           @relation("MilestoneResponsibleDirector")
+  weeklyReportsAsManager       WeeklyManagerReport[] @relation("WeeklyReportManager")
+  directorSummariesAsDirector  DirectorSummary[]     @relation("DirectorSummaryDirector")
+  memosAsOriginator            Memo[]                @relation("MemoOriginatingDirector")
+  memosAsDelegatedReviewer     Memo[]                @relation("MemoDelegatedReviewer")
+  appointmentsOrganised        Appointment[]         @relation("AppointmentOrganiser")
+  appointmentInvitations       AppointmentInvitee[]
+  reportAccessGrantsReceived   ReportAccessGrant[]   @relation("ReportAccessGrantedTo")
 }
 
 model UserRole {
@@ -265,9 +280,10 @@ model Activity {
   createdAt            DateTime            @default(now())
   lastUpdatedAt        DateTime            @updatedAt
 
-  updates     ActivityUpdate[]
-  evidence    Evidence[]
-  transitions WorkflowTransition[]
+  updates       ActivityUpdate[]
+  evidence      Evidence[]
+  transitions   WorkflowTransition[]
+  weeklyReports WeeklyManagerReport[]
 }
 
 enum ReviewStatus {
@@ -329,24 +345,36 @@ enum EvidenceRole {
 }
 
 model Evidence {
-  id               String          @id @default(cuid())
+  id               String               @id @default(cuid())
   fileName         String
   storageKey       String
   contentType      String
   sizeBytes        Int
   uploadedById     String
-  uploadedBy       User            @relation(fields: [uploadedById], references: [id])
-  uploadedAt       DateTime        @default(now())
+  uploadedBy       User                 @relation(fields: [uploadedById], references: [id])
+  uploadedAt       DateTime             @default(now())
   activityId       String?
-  activity         Activity?       @relation(fields: [activityId], references: [id])
+  activity         Activity?            @relation(fields: [activityId], references: [id])
   activityUpdateId String?
-  activityUpdate   ActivityUpdate? @relation(fields: [activityUpdateId], references: [id])
+  activityUpdate   ActivityUpdate?      @relation(fields: [activityUpdateId], references: [id])
   submissionId     String?
-  submission       Submission?     @relation(fields: [submissionId], references: [id])
+  submission       Submission?          @relation(fields: [submissionId], references: [id])
   delegationId     String?
-  delegation       Delegation?     @relation(fields: [delegationId], references: [id])
-  role             EvidenceRole    @default(OTHER)
-  scanStatus       ScanStatus      @default(PENDING)
+  delegation       Delegation?          @relation(fields: [delegationId], references: [id])
+  // #A32 — additive evidence attachment points for the new CEO Portal modules. Reuses this one
+  // polymorphic-by-FK Evidence model rather than a separate attachments table per new module,
+  // matching this codebase's existing convention (Activity/ActivityUpdate/Submission/Delegation
+  // above).
+  milestoneId      String?
+  milestone        Milestone?           @relation(fields: [milestoneId], references: [id])
+  weeklyReportId   String?
+  weeklyReport     WeeklyManagerReport? @relation(fields: [weeklyReportId], references: [id])
+  memoId           String?
+  memo             Memo?                @relation(fields: [memoId], references: [id])
+  appointmentId    String?
+  appointment      Appointment?         @relation(fields: [appointmentId], references: [id])
+  role             EvidenceRole         @default(OTHER)
+  scanStatus       ScanStatus           @default(PENDING)
 }
 
 // ---------------------------------------------------------------------------
@@ -495,6 +523,11 @@ model Deadline {
   permittedPaperTypes  String // JSON-encoded string[] — see assumptions-and-decisions.md#A9
   requiredReviewers    String? // JSON-encoded string[]
   reminderScheduleNote String? // free text describing reminder offsets (e.g. "T-7d, T-2d, T-1d")
+  // #A32 — SEMC reporting-window fields the Corporate Secretariat configures alongside the existing
+  // open/close dates, mirroring permittedPaperTypes' JSON-string-column convention (#A9) rather than
+  // a normalized join table, for the same "keep meeting-configuration schema simple" reasoning.
+  requiredDepartments  String? // JSON-encoded string[] of Department codes
+  requiredAnnexures    String? // JSON-encoded string[] of required annexure labels
 }
 
 // ---------------------------------------------------------------------------
@@ -526,72 +559,86 @@ enum ConfidentialityLevel {
 }
 
 model Submission {
-  id                       String               @id @default(cuid())
-  referenceNumber          String               @unique
-  submissionCategory       SubmissionCategory
-  paperType                String // validated against config list per category — see src/lib/config/paperTypes.ts
-  title                    String
-  departmentId             String
-  department               Department           @relation(fields: [departmentId], references: [id])
-  createdById              String // Milestone 1 Submitter — owns "My Submissions" listing and edit/resubmit rights, see #A14
-  createdBy                User                 @relation("SubmissionCreatedBy", fields: [createdById], references: [id])
-  currentVersion           Int                  @default(1) // mirrors versions.length, kept denormalized for quick list/detail display
-  sponsoringDirectorId     String?
-  sponsoringDirector       User?                @relation("SubmissionSponsorDirector", fields: [sponsoringDirectorId], references: [id])
-  responsibleManagerId     String?
-  responsibleManager       User?                @relation("SubmissionSponsorManager", fields: [responsibleManagerId], references: [id])
-  meetingId                String?
-  meeting                  Meeting?             @relation(fields: [meetingId], references: [id])
-  confidentiality          ConfidentialityLevel @default(INTERNAL)
-  purpose                  String?
-  executiveSummary         String?
-  recommendation           String?
-  proposedDecision         String?
-  financialImplications    String?
-  legalImplications        String?
-  riskImplications         String?
-  technologyImplications   String?
-  stakeholderImplications  String?
-  previousReferences       String?
-  proposedResolution       String? // required before submission for Board Decision Papers — enforced in code
-  workflowStatus           String // see src/lib/workflow/{smc,board}Workflow.ts for the state machine
-  isLate                   Boolean              @default(false)
-  lateJustification        String?
-  lateCannotWaitReason     String?
-  lateOperationalImpact    String?
-  lateUrgency              String?
-  lateExceptionApproverId  String?
-  lateExceptionApprovedAt  DateTime?
-  sourceWorkplanId         String?
-  sourceManagementReportId String?
-  smcSourceSubmissionId    String?              @unique
-  smcSourceSubmission      Submission?          @relation("SmcToBoard", fields: [smcSourceSubmissionId], references: [id])
-  boardSubmission          Submission?          @relation("SmcToBoard")
+  id                            String               @id @default(cuid())
+  referenceNumber               String               @unique
+  submissionCategory            SubmissionCategory
+  paperType                     String // validated against config list per category — see src/lib/config/paperTypes.ts
+  title                         String
+  departmentId                  String
+  department                    Department           @relation(fields: [departmentId], references: [id])
+  createdById                   String // Milestone 1 Submitter — owns "My Submissions" listing and edit/resubmit rights, see #A14
+  createdBy                     User                 @relation("SubmissionCreatedBy", fields: [createdById], references: [id])
+  currentVersion                Int                  @default(1) // mirrors versions.length, kept denormalized for quick list/detail display
+  sponsoringDirectorId          String?
+  sponsoringDirector            User?                @relation("SubmissionSponsorDirector", fields: [sponsoringDirectorId], references: [id])
+  responsibleManagerId          String?
+  responsibleManager            User?                @relation("SubmissionSponsorManager", fields: [responsibleManagerId], references: [id])
+  meetingId                     String?
+  meeting                       Meeting?             @relation(fields: [meetingId], references: [id])
+  confidentiality               ConfidentialityLevel @default(INTERNAL)
+  purpose                       String?
+  executiveSummary              String?
+  recommendation                String?
+  proposedDecision              String?
+  financialImplications         String?
+  legalImplications             String?
+  riskImplications              String?
+  technologyImplications        String?
+  stakeholderImplications       String?
+  previousReferences            String?
+  proposedResolution            String? // required before submission for Board Decision Papers — enforced in code
+  workflowStatus                String // see src/lib/workflow/{smc,board}Workflow.ts for the state machine
+  isLate                        Boolean              @default(false)
+  lateJustification             String?
+  lateCannotWaitReason          String?
+  lateOperationalImpact         String?
+  lateUrgency                   String?
+  lateExceptionApproverId       String?
+  lateExceptionApprovedAt       DateTime?
+  sourceWorkplanId              String?
+  sourceManagementReportId      String?
+  smcSourceSubmissionId         String?              @unique
+  smcSourceSubmission           Submission?          @relation("SmcToBoard", fields: [smcSourceSubmissionId], references: [id])
+  boardSubmission               Submission?          @relation("SmcToBoard")
   // Milestone 1 fields — see docs/milestone-1-plan.md and #A14.
-  mainDocumentStorageKey   String? // the Evidence(role: MAIN_PAPER) storageKey, denormalized for quick lookup
-  mainDocumentFileName     String?
-  generatedDraftStorageKey String? // set only if a templated draft was generated; never replaces mainDocumentStorageKey
-  templateId               String?
-  template                 Template?            @relation(fields: [templateId], references: [id])
-  routingFolderKey         String? // computed destination folder, confirmed/recorded when ACCEPTED -> ROUTED
-  routedAt                 DateTime?
+  mainDocumentStorageKey        String? // the Evidence(role: MAIN_PAPER) storageKey, denormalized for quick lookup
+  mainDocumentFileName          String?
+  generatedDraftStorageKey      String? // set only if a templated draft was generated; never replaces mainDocumentStorageKey
+  templateId                    String?
+  template                      Template?            @relation(fields: [templateId], references: [id])
+  routingFolderKey              String? // computed destination folder, confirmed/recorded when ACCEPTED -> ROUTED
+  routedAt                      DateTime?
   // SEMC's decision that this paper should proceed to Board — see docs/mvp-directors-portal-plan.md#A18.
   // This is NOT the Board paper itself: it only unlocks the Director's ability to submit one (a
   // separate Submission, category BOARD, linked via smcSourceSubmissionId below). Independent of
   // the ACCEPTED -> ROUTED -> CLOSED chain above — not a competing state.
-  endorsedForBoard         Boolean              @default(false)
-  endorsedForBoardAt       DateTime?
-  endorsedForBoardById     String?
+  endorsedForBoard              Boolean              @default(false)
+  endorsedForBoardAt            DateTime?
+  endorsedForBoardById          String?
   // #A30 — the Board's own final outcome on a Board paper (distinct from individual Board Members'
   // Decision rows below, and from endorsedForBoard above, which only records the CEO's earlier
   // "send to Board" call). Set by the Corporate Secretariat once the configured approval rule
   // (src/lib/board/approvalRules.ts) is satisfied — same shape as endorsedForBoard/-At/-ById.
-  boardOutcome             String?
-  boardOutcomeAt           DateTime?
-  boardOutcomeById         String?
-  submittedAt              DateTime?
-  createdAt                DateTime             @default(now())
-  updatedAt                DateTime             @updatedAt
+  boardOutcome                  String?
+  boardOutcomeAt                DateTime?
+  boardOutcomeById              String?
+  // #A32 — the CEO's pre-meeting SEMC actions (Accept for Agenda / Return to Director / Request
+  // More Information / Reject / Close), distinct from both the Secretariat's completeness-check
+  // outcome (SubmissionReview.outcome) and the CEO's separate Board-vetting call
+  // (endorsedForBoard/boardOutcome above). Free-text string, same reasoning as workflowStatus
+  // (#A1) — see src/lib/submissions/semcReview.ts for the state list.
+  ceoAgendaStatus               String?
+  ceoAgendaStatusAt             DateTime?
+  ceoAgendaStatusById           String?
+  // #A32 — the two-step "SEMC recommends, CEO confirms" Board-escalation record the client's SEMC
+  // spec asks for, kept distinct from endorsedForBoard (which remains the CEO's confirmation step
+  // — semcEscalationRecommended is the new, earlier "SEMC recommends" half).
+  semcEscalationRecommended     Boolean              @default(false)
+  semcEscalationRecommendedAt   DateTime?
+  semcEscalationRecommendedById String?
+  submittedAt                   DateTime?
+  createdAt                     DateTime             @default(now())
+  updatedAt                     DateTime             @updatedAt
 
   versions        SubmissionVersion[]
   annexures       SubmissionAnnexure[]
@@ -637,19 +684,25 @@ model SubmissionReview {
 }
 
 model WorkflowTransition {
-  id            String      @id @default(cuid())
-  entityType    String // Activity | Submission | Delegation
-  activityId    String?
-  activity      Activity?   @relation(fields: [activityId], references: [id])
-  submissionId  String?
-  submission    Submission? @relation(fields: [submissionId], references: [id])
-  delegationId  String?
-  delegation    Delegation? @relation(fields: [delegationId], references: [id])
-  fromState     String
-  toState       String
-  performedById String
-  performedAt   DateTime    @default(now())
-  comment       String?
+  id             String               @id @default(cuid())
+  entityType     String // Activity | Submission | Delegation | WeeklyManagerReport | Memo
+  activityId     String?
+  activity       Activity?            @relation(fields: [activityId], references: [id])
+  submissionId   String?
+  submission     Submission?          @relation(fields: [submissionId], references: [id])
+  delegationId   String?
+  delegation     Delegation?          @relation(fields: [delegationId], references: [id])
+  // #A32 — additive FKs so Weekly Manager Reports and Memos get the same real transition-timeline
+  // (not just AuditEvent JSON) every other workflowed entity in this codebase has.
+  weeklyReportId String?
+  weeklyReport   WeeklyManagerReport? @relation(fields: [weeklyReportId], references: [id])
+  memoId         String?
+  memo           Memo?                @relation(fields: [memoId], references: [id])
+  fromState      String
+  toState        String
+  performedById  String
+  performedAt    DateTime             @default(now())
+  comment        String?
 }
 
 // #A30 — one row per Board Member's individual vote on a Decision Paper (decisionType values:
@@ -777,6 +830,14 @@ model Delegation {
   // See src/lib/delegations/workflow.ts for the state graph. Free-text String, not an enum, for the
   // same reason as Submission.workflowStatus (#A1) — new states can be added without a migration.
   status                 String               @default("DRAFT")
+  // #A32 — one of the client's 10 named delegation categories (Task/Work Activity/Event
+  // Attendance/.../Other, src/lib/delegations/categories.ts), free-text so new categories never
+  // need a migration, matching every other lookup-list-as-string in this codebase (#A9's
+  // permittedPaperTypes reasoning).
+  category               String?
+  // #A32 — "Completion requires: Evidence or Report | Acknowledgement Only", enforced in
+  // submitDelegationForReview() — see workflow.ts.
+  completionRequirement  String               @default("EVIDENCE")
   createdById            String
   createdBy              User                 @relation("DelegationCreatedBy", fields: [createdById], references: [id])
   issuedAt               DateTime?
@@ -788,6 +849,26 @@ model Delegation {
 
   evidence    Evidence[]
   transitions WorkflowTransition[]
+  recipients  DelegationRecipient[]
+}
+
+// #A32 — additional delegation recipients beyond the single accountable `responsibleDirectorId`
+// (client: "several Directors with one accountable lead" / "a Manager, with the responsible
+// Director automatically notified"). Deliberately additive rather than a rewrite of
+// `responsibleDirectorId` — that field and its whole tested workflow stay the sole "accountable
+// lead" driver; rows here are notified/visible parties, not independent state-machine actors, per
+// docs/assumptions-and-decisions.md#A32.
+model DelegationRecipient {
+  id            String     @id @default(cuid())
+  delegationId  String
+  delegation    Delegation @relation(fields: [delegationId], references: [id])
+  userId        String
+  user          User       @relation(fields: [userId], references: [id])
+  recipientRole String     @default("DIRECTOR") // DIRECTOR | MANAGER
+  addedById     String
+  createdAt     DateTime   @default(now())
+
+  @@unique([delegationId, userId])
 }
 
 // ---------------------------------------------------------------------------
@@ -859,4 +940,243 @@ model AIGenerationRecord {
   reviewedById  String?
   reviewStatus  String    @default("PENDING_REVIEW") // PENDING_REVIEW | APPROVED | REJECTED
   reviewedAt    DateTime?
+}
+
+// ---------------------------------------------------------------------------
+// #A32 — CEO Portal: KPI/Milestone monitoring, Weekly Manager Reporting, Director Summaries,
+// Forward-to-CEO object-level access, Memos & BAU Approvals, Financial routing config,
+// Appointments. See docs/assumptions-and-decisions.md#A32 for the full design rationale.
+// ---------------------------------------------------------------------------
+
+// CEO-set milestones against a Director/department, monitored via the same reusable
+// performance/risk service as DepartmentPerformance (src/lib/performance/riskService.ts) rather
+// than a separately-coded traffic light. `validationStatus` is the client's exact 4-value CEO
+// validation vocabulary; approved-target changes (target/dueDate edits after a milestone leaves
+// DRAFT) are recorded as AuditEvents (action: MILESTONE_TARGET_CHANGED, carrying reason/previous/
+// new in previousState/newState JSON, user+timestamp already implicit on AuditEvent) rather than a
+// new audit model — reuses the existing append-only mechanism, see #A6/#A27 precedent.
+model Milestone {
+  id                    String     @id @default(cuid())
+  referenceNumber       String     @unique
+  title                 String
+  description           String?
+  departmentId          String
+  department            Department @relation(fields: [departmentId], references: [id])
+  responsibleDirectorId String
+  responsibleDirector   User       @relation("MilestoneResponsibleDirector", fields: [responsibleDirectorId], references: [id])
+  targetDescription     String
+  startDate             DateTime?
+  dueDate               DateTime
+  progressPercent       Int        @default(0)
+  // Submitted | Awaiting CEO Validation | Validated | Returned for Clarification — see
+  // src/lib/performance/milestones.ts for the state graph.
+  validationStatus      String     @default("SUBMITTED")
+  directorComment       String?
+  ceoComment            String?
+  createdById           String
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  evidence Evidence[]
+}
+
+// The Weekly Manager Report the client's spec describes in full (14 fields), previously flagged in
+// known-limitations.md as entirely unimplemented — this is the real model and workflow, not a
+// repurposing of the pre-existing, still-unused ActivityUpdate (kept as-is; see
+// docs/assumptions-and-decisions.md#A32 for why a new model was chosen over reviving that one).
+model WeeklyManagerReport {
+  id                    String               @id @default(cuid())
+  referenceNumber       String               @unique
+  reportingPeriodId     String
+  reportingPeriod       ReportingPeriod      @relation(fields: [reportingPeriodId], references: [id])
+  departmentId          String
+  department            Department           @relation(fields: [departmentId], references: [id])
+  managerId             String
+  manager               User                 @relation("WeeklyReportManager", fields: [managerId], references: [id])
+  activityId            String?
+  activity              Activity?            @relation(fields: [activityId], references: [id])
+  category              String // Project | BAU | Ad-hoc
+  kpiKraContribution    String?
+  progressPercent       Int                  @default(0)
+  workCompleted         String
+  milestonesAchieved    String?
+  plannedWork           String?
+  delays                String?
+  risks                 String?
+  decisionsRequired     String?
+  dueDate               DateTime?
+  // Draft | Submitted | Late | Under Director Review | Returned for Clarification |
+  // Validated by Director | Included in Director Summary | Closed — see
+  // src/lib/reporting/weeklyReportWorkflow.ts for the state graph.
+  status                String               @default("DRAFT")
+  isLate                Boolean              @default(false)
+  lateJustification     String?
+  directorReviewComment String?
+  reviewedById          String?
+  reviewedAt            DateTime?
+  version               Int                  @default(1)
+  supersedesId          String?              @unique
+  supersedes            WeeklyManagerReport? @relation("WeeklyReportVersion", fields: [supersedesId], references: [id])
+  supersededBy          WeeklyManagerReport? @relation("WeeklyReportVersion")
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  evidence    Evidence[]
+  transitions WorkflowTransition[]
+}
+
+// Director's consolidated, narrative per-department-per-period summary the CEO actually reads by
+// default (client: "The CEO must not automatically receive access to every detailed Manager
+// report"). Reuses the same `ceoValidationStatus` vocabulary as Milestone.validationStatus.
+model DirectorSummary {
+  id                   String          @id @default(cuid())
+  departmentId         String
+  department           Department      @relation(fields: [departmentId], references: [id])
+  directorId           String
+  director             User            @relation("DirectorSummaryDirector", fields: [directorId], references: [id])
+  reportingPeriodId    String
+  reportingPeriod      ReportingPeriod @relation(fields: [reportingPeriodId], references: [id])
+  keyAchievements      String?
+  kpiKraProgressNote   String?
+  milestonesNote       String?
+  criticalActivities   String?
+  delays               String?
+  risks                String?
+  decisionsRequired    String?
+  nextPeriodPriorities String?
+  lastReportingDate    DateTime?
+  ceoValidationStatus  String          @default("SUBMITTED")
+  ceoComment           String?
+  createdById          String
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  @@unique([departmentId, reportingPeriodId])
+}
+
+// Generic "Forward to CEO" object-level access grant — the object-specific access primitive that
+// docs/ceo-portal-requirements-review.md (WMR-5/RBAC-3) found entirely missing from the permission
+// model. Polymorphic entityType/entityId, same generalization pattern as AuditEvent/Comment, so it
+// applies to WeeklyManagerReport now and any future entity without a schema change.
+// `entityVersion` pins the grant to the exact version forwarded, per the client's "access is
+// granted only to the forwarded report/version" requirement.
+model ReportAccessGrant {
+  id              String   @id @default(cuid())
+  entityType      String
+  entityId        String
+  entityVersion   Int?
+  grantedToUserId String
+  grantedToUser   User     @relation("ReportAccessGrantedTo", fields: [grantedToUserId], references: [id])
+  grantedById     String
+  reason          String?
+  createdAt       DateTime @default(now())
+}
+
+// CEO Memos & BAU Approvals — the model docs/ceo-portal-requirements-review.md (MEMO-1/MEMO-2)
+// found entirely absent. `category` is one of the client's 13 named approval types (free string,
+// src/lib/memos/categories.ts), `status` a table-driven graph (src/lib/memos/workflow.ts) matching
+// this codebase's existing Submission/Delegation pattern. Comments reuse the existing polymorphic
+// `Comment` model (entityType: "Memo") — no new comment table.
+model Memo {
+  id                    String     @id @default(cuid())
+  referenceNumber       String     @unique
+  category              String
+  subject               String
+  originatingDirectorId String
+  originatingDirector   User       @relation("MemoOriginatingDirector", fields: [originatingDirectorId], references: [id])
+  departmentId          String
+  department            Department @relation(fields: [departmentId], references: [id])
+  purpose               String
+  background            String?
+  requestedDecision     String
+  recommendation        String?
+  financialValue        Decimal?   @db.Decimal(14, 2)
+  budgetCode            String?
+  costCentre            String?
+  delegationAuthority   String?
+  priority              String     @default("MEDIUM")
+  dueDate               DateTime?
+  status                String     @default("DRAFT")
+  currentVersion        Int        @default(1)
+  delegatedReviewerId   String?
+  delegatedReviewer     User?      @relation("MemoDelegatedReviewer", fields: [delegatedReviewerId], references: [id])
+  createdById           String
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  evidence       Evidence[]
+  whatsappTokens WhatsAppApprovalToken[]
+  transitions    WorkflowTransition[]
+}
+
+// Configurable financial-approval routing thresholds — the client is explicit these must not be
+// permanently hard-coded constants. Seeded with the 3 initial tiers (<=K50,000 / K50,000-K1m /
+// >K1m) plus the CEO Office submission row; src/lib/finance/financialRouting.ts reads this table,
+// never the raw numbers, to resolve which approval stage a Memo's financialValue requires.
+model FinancialApprovalRule {
+  id                    String   @id @default(cuid())
+  label                 String
+  minAmount             Decimal  @db.Decimal(14, 2)
+  maxAmount             Decimal? @db.Decimal(14, 2)
+  approvalStageSequence String // JSON string[] e.g. ["DIRECTOR","EXECUTIVE_VIEWER"]
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+}
+
+// CEO/EO/PA appointment scheduling — behind the calendar provider interface
+// (src/lib/providers/calendar/) the same way every other Microsoft 365 touchpoint in this codebase
+// is (see #A3/#A7/#A13). `teamsMeetingUrl` is populated only by a real Graph-backed provider; the
+// local mock leaves it null and says so in the UI rather than fabricating a fake link.
+model Appointment {
+  id              String   @id @default(cuid())
+  title           String
+  agenda          String?
+  startAt         DateTime
+  endAt           DateTime
+  timezone        String   @default("Pacific/Port_Moresby")
+  location        String?
+  teamsMeetingUrl String?
+  status          String   @default("SCHEDULED") // SCHEDULED | RESCHEDULED | CANCELLED | COMPLETED
+  meetingNotes    String?
+  organiserId     String
+  organiser       User     @relation("AppointmentOrganiser", fields: [organiserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  invitees AppointmentInvitee[]
+  evidence Evidence[]
+}
+
+model AppointmentInvitee {
+  id              String      @id @default(cuid())
+  appointmentId   String
+  appointment     Appointment @relation(fields: [appointmentId], references: [id])
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  // Pending | Accepted | Declined | Clarification Requested | Alternate Nominated
+  response        String      @default("PENDING")
+  responseReason  String?
+  alternateUserId String?
+  respondedAt     DateTime?
+
+  @@unique([appointmentId, userId])
+}
+
+// WhatsApp approval scaffolding only — see src/lib/providers/notifications/whatsappProvider.ts and
+// docs/assumptions-and-decisions.md#A32 for why this deliberately stops short of a working
+// inbound-command loop (no live Business API credentials, no public webhook route). This table
+// exists so a real implementation has somewhere to write expiring, single-use, version-pinned
+// tokens without a further migration — issueWhatsAppApprovalToken() creates rows; nothing consumes
+// them yet.
+model WhatsAppApprovalToken {
+  id                  String    @id @default(cuid())
+  memoId              String
+  memo                Memo      @relation(fields: [memoId], references: [id])
+  token               String    @unique
+  documentVersion     Int
+  phoneNumberSnapshot String?
+  expiresAt           DateTime
+  usedAt              DateTime?
+  command             String?
+  createdAt           DateTime  @default(now())
 }

@@ -36,6 +36,12 @@ export const SEED_ROLES = [
     name: 'CEO / Executive Viewer',
     securityGroupName: 'NICTA-Portal-CEO',
   },
+  // #A32 — CEO's Executive Officer / Personal Assistant. One role code covers both real-world
+  // titles (EO and PA share an identical permission profile: organise/summarise/schedule, never
+  // approve/reject/sign) — the individual's actual title is `User.jobTitle` (already a free-text
+  // field), not a second role code, matching the "don't duplicate for a display difference"
+  // precedent (#A16's role-name relabeling) rather than adding CEO_EO/CEO_PA as separate codes.
+  { code: 'CEO_OFFICE', name: 'CEO Office (Executive Officer / PA)' },
   {
     code: 'SYSTEM_ADMIN',
     name: 'System Administrator',
@@ -50,11 +56,15 @@ export const ROLE_LANDING_PAGE: Record<RoleCode, string> = {
   REVIEWER_SECRETARIAT: '/review-queue',
   MANAGER: '/my-workplan',
   DIRECTOR: '/department-dashboard',
-  SMC_SECRETARIAT: '/smc/dashboard',
-  SMC_MEMBER: '/smc/dashboard',
+  // #A32 — SEMC Secretariat/Member now land on the real SEMC Executive Reporting screen instead of
+  // the ComingSoonPage stub (docs/ceo-portal-requirements-review.md's RBAC-4 finding: these two
+  // roles were seeded but gated nothing anywhere).
+  SMC_SECRETARIAT: '/executive-dashboard/semc',
+  SMC_MEMBER: '/executive-dashboard/semc',
   BOARD_SECRETARIAT: '/board/dashboard',
   BOARD_MEMBER: '/board/dashboard',
   EXECUTIVE_VIEWER: '/executive-dashboard',
+  CEO_OFFICE: '/executive-dashboard/office',
   SYSTEM_ADMIN: '/admin',
 };
 
@@ -70,6 +80,7 @@ export const ROLE_LANDING_PRIORITY: RoleCode[] = [
   'SMC_SECRETARIAT',
   'BOARD_SECRETARIAT',
   'SMC_MEMBER',
+  'CEO_OFFICE',
   'EXECUTIVE_VIEWER',
   'SYSTEM_ADMIN',
 ];

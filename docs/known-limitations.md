@@ -91,12 +91,9 @@ both Director and Corporate Services Director roles could use it.
   exists yet — `src/lib/providers/notifications/graphProvider.ts` is an unimplemented stub (throws)
   behind `NOTIFICATION_PROVIDER=graph`, never wired to a real Graph/SMTP send. Real email delivery
   needs that provider built and `NOTIFICATION_PROVIDER` switched in a deployment's `.env`.
-- **Manager weekly reporting is not implemented.** The client's spec describes a dedicated Manager
-  role workflow (reporting week, KPI/KRA, progress, risks, support requested, etc.) with strict
-  visibility boundaries (a Manager sees only their own submissions) that Directors then combine into
-  SMC submissions. `MANAGER` exists as a seeded role/department assignment (see `prisma/seed.ts`)
-  but has no dedicated pages, forms, or data model beyond the generic `Submission` — flagged as a
-  next-milestone recommendation in `#A27` rather than attempted in that pass.
+- **Manager weekly reporting is now implemented** (`#A32`) — see `src/lib/reporting/`,
+  `/my-workplan` (Manager submission), `/department-dashboard` (Director review), and the CEO's
+  `/executive-dashboard/weekly-management` departmental-summary-only view.
 - **The Board paper state machine is still the original ~3-state simplified one** (`DRAFT` ->
   `SUBMITTED` -> `CLOSED`, see `BOARD_STATUS_LABELS` in `src/components/StatusBadge.tsx`), not the
   client's fuller ~10-state design (Board Secretariat pack-check, Board meeting stages, decision
@@ -106,30 +103,27 @@ both Director and Corporate Services Director roles could use it.
   entries above) already routes by year/meeting/on-time-vs-late/department; the client's fuller spec
   additionally wants submission stage, paper type, and a distinct final/archive folder as explicit
   dimensions — not built yet.
-- **No KPI/KRA model exists.** `#A29`'s spec describes a full hierarchy (Corporate Strategy ->
-  Corporate Plan -> Organisational KPI/KRA -> Department KPI/KRA -> Workplan Activity -> Weekly
-  Update -> Evidence -> Executive Report) with RAG status, baselines/targets, and dashboards scoped
-  per role (Manager/Director/CEO/Secretariat). `StrategicObjective` and `Activity` already exist in
-  the schema (`#A5`/`#A7`-era foundations for a later workplan module) but there is no `KPI`/`KRA`
-  model, no RAG computation, and no dashboard reading them — this is a 5-6-model schema addition and
-  the single largest deferred item from `#A29`, recommended as the next milestone.
-- **No weekly summary generation.** `#A29`'s spec asks for configurable start/mid/end-of-week
-  summaries (CEO -> Director, Director -> Manager) generated "from actual portal records only" and
-  shown both in-portal and via notification. No scheduling/cron infrastructure exists in this
-  codebase to generate them on a cadence; building this needs (a) a job runner or scheduled route,
-  and (b) query logic to assemble each summary from `Submission`/`Delegation`/(future) KPI records.
-- **No WhatsApp notification provider.** `NotificationProvider` (`src/lib/providers/notifications/`)
-  already has the exact shape `#A29`'s spec asks for (a provider interface, a mock implementation,
-  delivery recorded) — extending it with a `WhatsAppNotificationProvider` (real: Business API behind
-  `NOTIFICATION_PROVIDER=whatsapp`; mock: logs to the existing outbox pattern) is additive, no new
-  architecture needed. Not built this pass since it's an external integration with no available
-  credentials, matching the client's own fallback instruction to keep the workflow testable without
-  one — deferred, not blocking.
-- **CEO delegations are CEO -> Director only** (`#A29`), matching the client's own explicit scope
-  line ("Do not fully implement... Executive Delegations beyond the CEO-to-Director workflow").
-  There is no Director -> Manager delegation chain, no delegation evidence upload UI yet (the schema
-  supports it — `Evidence.delegationId` — but no upload form calls it), and no automatic `OVERDUE`
-  transition (computed at read time instead — see `#A29`'s decision log entry for why).
+- **No KPI/KRA model exists** beyond `DepartmentPerformance` (a snapshot table, `#A31`) and
+  `Milestone` (`#A32`) — the full Corporate Strategy -> Corporate Plan -> Organisational KPI/KRA ->
+  Department KPI/KRA -> Workplan Activity hierarchy `#A29`'s spec describes is still not built.
+  `StrategicObjective` and `Activity` remain unused foundations for a later workplan module.
+- **No scheduled/cron-generated summaries.** Director Summaries (`#A32`) and weekly compliance
+  views are generated on demand when a Director submits or the CEO opens the page, not on a fixed
+  cadence — there is still no job-runner/scheduled-route infrastructure anywhere in this codebase.
+- **`WhatsAppNotificationProvider` exists but has no live send path** (`#A29`/`#A31`), and
+  `#A32` added the approval-side scaffolding (`WhatsAppApprovalToken`, `confirmWhatsAppApproval()`)
+  without a live inbound-command loop — no public webhook route exists to receive an unauthenticated
+  "APPROVE" from the internet, deliberately, since building one without real phone-number
+  verification would misrepresent the approval as more secure than it is. Both need real Business
+  API credentials plus a verified phone-to-user mapping before going further.
+- **CEO delegations support multi-recipient addressing (`#A32`) but the accountable-lead model is
+  still single-Director.** `DelegationRecipient` lets the CEO name additional Directors/a Manager as
+  notified, visible parties, but `responsibleDirectorId` (the sole accountable lead driving the
+  state machine) is still exactly one Director — "several Directors with one accountable lead" is
+  satisfied, but there is no independent per-recipient acknowledgement/status. There is also still no
+  delegation evidence upload *UI* (the schema supports it — `Evidence.delegationId` — but no form
+  calls it, `completionRequirement: EVIDENCE` is currently satisfied by a comment, not a real file),
+  and no automatic `OVERDUE` transition (computed at read time — see `#A29`'s decision log entry).
 - **No real quorum/majority calculation for Board decisions** (`#A30`). No Board-membership-roster/
   quorum-size concept exists anywhere in this codebase; `src/lib/board/approvalRules.ts`'s
   `evaluateBoardOutcome()` is a deliberately simple placeholder (any Reject blocks, else any Defer,
@@ -174,16 +168,30 @@ both Director and Corporate Services Director roles could use it.
   Manager-weekly-update-to-department-KPI pipeline feeding it; every figure in the app today is
   seed/demo data (`prisma/seed.ts`'s `seedDepartmentPerformance`), not derived from any actual
   reporting workflow.
-- **CEO Approval Inbox is a read aggregation, not a new approval action set.** The approved mockup
-  shows CEO actions (Approve with Conditions/Decline/Delegate Review) that don't exist as
-  server-side operations on SMC submissions today — the inbox links each item through to its real,
-  existing action panel (CEO vetting, Board decisions) rather than presenting buttons with no
-  backing workflow. CEO Memos (one row type in the mockup) has no model anywhere in this codebase
-  and isn't built — see `#A31`.
+- **CEO Approval Inbox now includes Memos & BAU (`#A32`)**, alongside SMC/SEMC pre-meeting review
+  and Board Decision Papers — real server-side actions exist for Approve/Approve with Conditions/
+  Return/Request More Information/Reject/Delegate Review on Memos specifically. SMC/SEMC and Board
+  items still link through to their own existing action panels rather than sharing that exact
+  action set, since those workflows have their own established decision vocabularies (`#A27`/`#A30`).
 - **CEO Delegated Tasks reuses `#A29`'s Delegation feature** rather than a second parallel model —
   the mockup's state _labels_ (Assigned/Acknowledged/In Progress/Awaiting Update/Submitted/
   Completed/Overdue/Closed) differ in wording from the existing Delegation state machine's labels;
   reconciling the exact display text is a small follow-up, not a data-model change.
-- **Digital signature and WhatsApp remain interface-only future modules** (`#A31`) — see their own
-  provider files (`src/lib/providers/signature/`, `src/lib/providers/notifications/
-whatsappProvider.ts`) for what a real implementation would need to supply.
+- **Digital signature remains an interface-only future module** (`#A31`) — see
+  `src/lib/providers/signature/` for what a real implementation would need to supply.
+- **`AWAITING_SUPPORTING_REVIEW` (Memo) and `UNDER_REVIEW`-as-a-real-stop are named states with no
+  human actor yet** (`#A32`). Every memo currently passes through `UNDER_REVIEW` automatically on
+  its way to `AWAITING_CEO_APPROVAL` (see `#A32`'s decision-log entry for the bug this fixed) —
+  there is no "supporting reviewer" role or action that actually pauses a memo there, and no
+  Director-level auto-approval path for sub-K50,000 items either; every submitted memo reaches the
+  CEO today regardless of value.
+- **Delegating memo review does not grant approval authority.** `delegateMemoReview()` (`#A32`)
+  gives CEO Office (EO/PA) visibility and comment rights on one memo; `approveMemo`/`rejectMemo`/etc.
+  still hard-gate on `CEO_ROLES` unconditionally. A real "formal delegation actually grants decision
+  authority" mechanism (the client's own "...unless a formal delegation exists" carve-out) is not
+  built — a deliberate scope decision, since it is itself a significant authority-escalation feature.
+- **No live Outlook/Teams tenant.** `CalendarProvider` (`#A32`, `src/lib/providers/calendar/`)
+  mirrors every other Microsoft-365-dependent provider in this codebase: scheduling itself works
+  fully locally (real `Appointment` rows, invitee responses, reminders, notes), but
+  `createTeamsMeeting()` throws without live Graph credentials — appointments without a live tenant
+  simply have no Teams join link, shown honestly in the UI rather than fabricated.

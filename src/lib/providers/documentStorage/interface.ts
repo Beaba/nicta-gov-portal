@@ -43,7 +43,8 @@ export type DocumentPlacementKind =
   | 'BOARD_MAIN'
   | 'BOARD_ANNEXURE'
   | 'BOARD_SMC_SOURCE'
-  | 'BOARD_MINUTES';
+  | 'BOARD_MINUTES'
+  | 'SEMC_MINUTES';
 
 /**
  * Provider-agnostic description of where one file belongs — both DocumentStorageProvider

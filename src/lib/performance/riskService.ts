@@ -40,8 +40,35 @@ export function computeDepartmentStatus(
   thresholds: RiskThresholds = DEFAULT_RISK_THRESHOLDS,
 ): DepartmentRiskStatus {
   if (!snapshot) return 'NO_DATA';
-  const average = (snapshot.kpiPercent + snapshot.kraPercent) / 2;
-  if (average >= thresholds.onTrackMinPercent) return 'ON_TRACK';
-  if (average >= thresholds.atRiskMinPercent) return 'AT_RISK';
+  return computeStatusForPercent(
+    (snapshot.kpiPercent + snapshot.kraPercent) / 2,
+    thresholds,
+  );
+}
+
+// #A32 — the same reusable calculation, generalized to any single progress percentage (not just a
+// department's averaged KPI/KRA pair) so Milestones, Weekly Manager Reports and anything else with
+// a progress percentage all compute their traffic light through this one service, per the client's
+// explicit "implement thresholds through a configurable performance service; do not calculate them
+// separately inside UI components." `hasData` lets a caller distinguish "0% progress" from "no
+// update at all" (NO_DATA / Grey), matching computeDepartmentStatus's own null-snapshot handling.
+export function computeStatusForPercent(
+  percent: number | null | undefined,
+  thresholds: RiskThresholds = DEFAULT_RISK_THRESHOLDS,
+): DepartmentRiskStatus {
+  if (percent === null || percent === undefined) return 'NO_DATA';
+  if (percent >= thresholds.onTrackMinPercent) return 'ON_TRACK';
+  if (percent >= thresholds.atRiskMinPercent) return 'AT_RISK';
   return 'CRITICAL';
 }
+
+// #A32 — colour + text + icon token for every traffic-light rendering, per the client's explicit
+// "Do not rely on colour alone" requirement. `icon` is a tiny inline glyph (not an SVG component
+// import, to keep this a pure, framework-free data module) that TrafficLight.tsx maps to the real
+// icon component.
+export const RISK_STATUS_ICON: Record<DepartmentRiskStatus, 'check' | 'warning' | 'alert' | 'dash'> = {
+  ON_TRACK: 'check',
+  AT_RISK: 'warning',
+  CRITICAL: 'alert',
+  NO_DATA: 'dash',
+};

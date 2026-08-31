@@ -8,6 +8,7 @@
 import { PrismaClient } from '@prisma/client';
 import { SEED_DEPARTMENTS } from '../src/lib/config/departments';
 import { SEED_ROLES, type RoleCode } from '../src/lib/config/roles';
+import { getReportingWeekFor } from '../src/lib/reporting/weeklyDeadline';
 
 const prisma = new PrismaClient();
 
@@ -329,6 +330,9 @@ async function main() {
 
   console.log('Seeding demo department performance snapshots...');
   await seedDepartmentPerformance();
+
+  console.log('Seeding CEO Portal demo data (milestones, weekly reports, memos, appointments)...');
+  await seedCeoPortalDemoData();
 
   console.log('Seed complete.');
 
@@ -840,6 +844,216 @@ async function main() {
             lastReportedAt: month.end,
           },
         });
+      }
+    }
+  }
+
+  // #A32 — demo data for the CEO Portal's new modules: Milestones, Weekly Manager Reports,
+  // Director Summaries, Memos, financial routing config, and Appointments. Fictional, clearly
+  // demo-labelled where user-visible (isDemoUser), idempotent (guarded by natural keys / existing
+  // rows), so re-running `db:seed` never duplicates.
+  async function seedCeoPortalDemoData() {
+    await upsertUser({
+      email: 'ceo.office.demo@nicta.gov.pg',
+      name: 'Dorothy Kaupa (Demo Executive Officer)',
+      jobTitle: 'Executive Officer to the CEO',
+      departmentCode: 'OCEO',
+      roleAssignments: [{ role: 'CEO_OFFICE', departmentCode: null }],
+    });
+
+    const financialRuleSeeds = [
+      { label: 'Up to K50,000', minAmount: 0, maxAmount: 50000, stages: ['SUBMITTER'] },
+      {
+        label: 'Above K50,000 up to K1,000,000',
+        minAmount: 50000.01,
+        maxAmount: 1000000,
+        stages: ['SUBMITTER', 'EXECUTIVE_VIEWER'],
+      },
+      {
+        label: 'Above K1,000,000',
+        minAmount: 1000000.01,
+        maxAmount: null,
+        stages: ['SUBMITTER', 'EXECUTIVE_VIEWER', 'BOARD_SECRETARIAT'],
+      },
+    ];
+    for (const rule of financialRuleSeeds) {
+      const existing = await prisma.financialApprovalRule.findFirst({ where: { label: rule.label } });
+      if (!existing) {
+        await prisma.financialApprovalRule.create({
+          data: {
+            label: rule.label,
+            minAmount: rule.minAmount,
+            maxAmount: rule.maxAmount,
+            approvalStageSequence: JSON.stringify(rule.stages),
+          },
+        });
+      }
+    }
+
+    const directors = await prisma.user.findMany({
+      where: { isActive: true, roles: { some: { role: { code: 'SUBMITTER' } } } },
+      include: { department: true },
+      orderBy: { name: 'asc' },
+    });
+    const managers = await prisma.user.findMany({
+      where: { isActive: true, roles: { some: { role: { code: 'MANAGER' } } } },
+      include: { department: true },
+      orderBy: { name: 'asc' },
+    });
+    const ceoUser = await prisma.user.findFirst({
+      where: { isActive: true, roles: { some: { role: { code: 'EXECUTIVE_VIEWER' } } } },
+    });
+
+    // Milestones — one per real Director, deliberately spanning On Track / At Risk / overdue-
+    // Critical so the traffic-light computation (riskService.ts) shows a real mix.
+    const milestoneSeeds = [
+      { title: 'Cyber Security Bill consultation', target: 'Complete stakeholder consultation and table the draft Bill', progress: 65, dueInDays: 7 },
+      { title: 'Spectrum licensing modernisation', target: 'Migrate the licensing register to the new platform', progress: 90, dueInDays: 5 },
+      { title: 'Enforcement case backlog reduction', target: 'Clear 80% of the current enforcement case backlog', progress: 35, dueInDays: -3 },
+      { title: 'Corporate Plan KPI refresh', target: 'Publish the refreshed 2027-2029 Corporate Plan KPI set', progress: 55, dueInDays: 14 },
+    ];
+    for (let i = 0; i < milestoneSeeds.length; i++) {
+      const seedItem = milestoneSeeds[i];
+      const director = directors[i % directors.length];
+      if (!seedItem || !director || !director.departmentId) continue;
+      const existing = await prisma.milestone.findFirst({ where: { title: seedItem.title } });
+      if (existing) continue;
+      await prisma.milestone.create({
+        data: {
+          referenceNumber: `MS-DEMO-${String(i + 1).padStart(3, '0')}`,
+          title: seedItem.title,
+          targetDescription: seedItem.target,
+          departmentId: director.departmentId,
+          responsibleDirectorId: director.id,
+          dueDate: new Date(Date.now() + seedItem.dueInDays * 24 * 60 * 60 * 1000),
+          progressPercent: seedItem.progress,
+          validationStatus: i === 0 ? 'AWAITING_CEO_VALIDATION' : 'SUBMITTED',
+          createdById: ceoUser?.id ?? director.id,
+        },
+      });
+    }
+
+    // Weekly Manager Reports — this week, a mix of on-time/late/not-yet-submitted per manager, so
+    // the CEO's departmental compliance summary shows real variation.
+    const week = getReportingWeekFor();
+    const weekPeriod = await prisma.reportingPeriod.upsert({
+      where: { code: week.code },
+      update: {},
+      create: {
+        code: week.code,
+        label: week.label,
+        periodType: 'Weekly',
+        startDate: week.weekStart,
+        endDate: week.weekEnd,
+      },
+    });
+    for (let i = 0; i < managers.length; i++) {
+      const manager = managers[i];
+      if (!manager || !manager.departmentId) continue;
+      if (i % 3 === 2) continue; // leave roughly a third un-submitted, so "late/missing" is real
+      const existing = await prisma.weeklyManagerReport.findFirst({
+        where: { managerId: manager.id, reportingPeriodId: weekPeriod.id },
+      });
+      if (existing) continue;
+      const isLate = i % 4 === 0;
+      await prisma.weeklyManagerReport.create({
+        data: {
+          referenceNumber: `WR-DEMO-${week.code}-${String(i + 1).padStart(3, '0')}`,
+          reportingPeriodId: weekPeriod.id,
+          departmentId: manager.departmentId,
+          managerId: manager.id,
+          category: i % 2 === 0 ? 'BAU' : 'Project',
+          progressPercent: 40 + ((i * 13) % 55),
+          workCompleted: 'Progressed weekly workplan activities and cleared outstanding correspondence.',
+          plannedWork: 'Continue scheduled activities for next week.',
+          isLate,
+          lateJustification: isLate ? 'Delayed by a departmental all-staff meeting.' : null,
+          status: isLate ? 'LATE' : 'SUBMITTED',
+        },
+      });
+    }
+
+    // Director Summaries — one per department for this week, some validated, one awaiting.
+    for (const dept of SEED_DEPARTMENTS) {
+      const departmentId = departments.get(dept.code);
+      const director = directors.find((d) => d.departmentId === departmentId);
+      if (!departmentId || !director) continue;
+      const existing = await prisma.directorSummary.findFirst({
+        where: { departmentId, reportingPeriodId: weekPeriod.id },
+      });
+      if (existing) continue;
+      await prisma.directorSummary.create({
+        data: {
+          departmentId,
+          directorId: director.id,
+          reportingPeriodId: weekPeriod.id,
+          keyAchievements: `${dept.name} delivered its scheduled workplan milestones this week.`,
+          kpiKraProgressNote: 'On track against quarterly KPI/KRA targets.',
+          criticalActivities: 'No critical activities outstanding.',
+          decisionsRequired: dept.code === 'COMPLIANCE' ? 'Resourcing decision needed for the enforcement backlog.' : null,
+          nextPeriodPriorities: 'Continue current workplan activities.',
+          lastReportingDate: new Date(),
+          ceoValidationStatus: dept.code === 'COMPLIANCE' ? 'SUBMITTED' : 'VALIDATED',
+          createdById: director.id,
+        },
+      });
+    }
+
+    // Memos & BAU Approvals — a spread across categories/statuses, including one financial
+    // memo above K50,000 (routes to CEO per financialRouting.ts) and one plain BAU item
+    // (WhatsApp-eligible, per memos/categories.ts).
+    const memoSeeds = [
+      { category: 'Financial Delegation', subject: 'Network hardware procurement', financialValue: 85000, status: 'AWAITING_CEO_APPROVAL' as const },
+      { category: 'General BAU Approval', subject: 'Staff travel request', financialValue: null, status: 'AWAITING_CEO_APPROVAL' as const },
+      { category: 'Administrative Memo', subject: 'Office maintenance', financialValue: null, status: 'DRAFT' as const },
+    ];
+    for (let i = 0; i < memoSeeds.length; i++) {
+      const seedItem = memoSeeds[i];
+      const director = directors[i % directors.length];
+      if (!seedItem || !director || !director.departmentId) continue;
+      const existing = await prisma.memo.findFirst({ where: { subject: seedItem.subject } });
+      if (existing) continue;
+      await prisma.memo.create({
+        data: {
+          referenceNumber: `MEMO-DEMO-${String(i + 1).padStart(3, '0')}`,
+          category: seedItem.category,
+          subject: seedItem.subject,
+          originatingDirectorId: director.id,
+          departmentId: director.departmentId,
+          purpose: `${seedItem.subject} — demo memo for CEO Portal review.`,
+          requestedDecision: 'Approve as recommended.',
+          recommendation: 'Recommended for approval.',
+          financialValue: seedItem.financialValue,
+          budgetCode: seedItem.financialValue ? 'ICT-CAPEX-2026' : null,
+          costCentre: seedItem.financialValue ? 'CCS-IT-INFRA' : null,
+          priority: 'MEDIUM',
+          dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+          status: seedItem.status,
+          createdById: director.id,
+        },
+      });
+    }
+
+    // Appointments — one upcoming, one already-responded, so the CEO screens show real invitee
+    // response variation.
+    if (ceoUser && directors.length > 0) {
+      const existing = await prisma.appointment.findFirst({ where: { title: 'SEMC Preparatory Briefing' } });
+      if (!existing) {
+        const appointment = await prisma.appointment.create({
+          data: {
+            title: 'SEMC Preparatory Briefing',
+            agenda: 'Walk through the agenda ahead of the next SEMC meeting.',
+            startAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+            endAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000),
+            location: 'Boardroom A / Microsoft Teams',
+            organiserId: ceoUser.id,
+          },
+        });
+        for (const director of directors.slice(0, 3)) {
+          await prisma.appointmentInvitee.create({
+            data: { appointmentId: appointment.id, userId: director.id },
+          });
+        }
       }
     }
   }

@@ -200,6 +200,24 @@ export function buildDocumentPathSegments(placement: DocumentPlacementMetadata):
       ];
     }
 
+    // #A32 — SEMC minutes, mirroring BOARD_MINUTES exactly but filed under the existing
+    // 01_SMC_Submissions hierarchy (SEMC reuses the SMC meeting/submission register, see
+    // src/lib/semc/meetings.ts).
+    case 'SEMC_MINUTES': {
+      const meetingDate = requireField(placement, 'meetingDate');
+      const meetingNumber = requireField(placement, 'meetingNumber');
+      const version = placement.version ?? 1;
+      const { year, compact } = meetingDateParts(meetingDate);
+      return [
+        GOVERNANCE_LIBRARY,
+        '01_SMC_Submissions',
+        year,
+        `SMC_${compact}`,
+        '02_Minutes',
+        `${meetingNumber}_${compact}_Minutes_v${version}${ext}`,
+      ];
+    }
+
     default: {
       const exhaustive: never = placement.kind;
       throw new Error(`Unknown DocumentPlacementMetadata.kind: ${String(exhaustive)}`);

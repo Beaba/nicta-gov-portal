@@ -10,20 +10,44 @@ import { PortalSidebar } from '@/components/PortalSidebar';
 export function PortalShell({
   user,
   active,
+  variant = 'default',
   children,
 }: {
   user: AuthenticatedUser;
   active?: string;
+  variant?: 'default' | 'executive';
   children: React.ReactNode;
 }) {
+  const isExecutive = variant === 'executive';
+
   return (
     <div className="flex min-h-screen flex-col">
       <PortalHeader user={user} />
       <div className="flex flex-1">
-        <PortalSidebar user={user} active={active} />
-        <main className="relative flex-1 overflow-x-hidden bg-nicta-cream">
-          <DashboardPattern />
-          <div className="relative z-10 mx-auto max-w-6xl px-8 py-8">{children}</div>
+        {/* #A32 — pure-CSS mobile nav toggle (no client component needed): PortalHeader renders a
+            hamburger <label htmlFor="mobile-nav-toggle"> (label/htmlFor works regardless of DOM
+            position); the checkbox itself must be a direct sibling of the elements using
+            `peer-checked:` for Tailwind's peer selector to match, so it lives here. */}
+        <input type="checkbox" id="mobile-nav-toggle" className="peer hidden" aria-hidden="true" />
+        <div className="fixed inset-0 z-40 hidden bg-black/40 peer-checked:block lg:hidden">
+          <label htmlFor="mobile-nav-toggle" className="absolute inset-0" aria-label="Close menu" />
+        </div>
+        <div className="fixed inset-y-0 left-0 z-50 -translate-x-full transition-transform duration-200 peer-checked:translate-x-0 lg:static lg:translate-x-0">
+          <PortalSidebar user={user} active={active} />
+        </div>
+        <main
+          className={`relative min-w-0 flex-1 overflow-x-hidden ${
+            isExecutive ? 'bg-[#fbfaf7]' : 'bg-nicta-cream'
+          }`}
+        >
+          {!isExecutive && <DashboardPattern />}
+          <div
+            className={`relative z-10 mx-auto ${
+              isExecutive ? 'max-w-[1380px] px-5 py-5 xl:px-7' : 'max-w-6xl px-8 py-8'
+            }`}
+          >
+            {children}
+          </div>
         </main>
       </div>
     </div>

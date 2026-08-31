@@ -20,6 +20,8 @@ import {
   requestDelegationExtension,
   addDelegationUpdate,
   addCeoComment,
+  nominateDelegationAlternate,
+  assignDelegationToManager,
 } from '@/lib/delegations/delegations';
 
 function revalidateAndReturn(delegationId: string) {
@@ -162,5 +164,27 @@ export async function addCeoCommentAction(delegationId: string, formData: FormDa
   const user = requireUser(await getCurrentUser());
   const comment = String(formData.get('comment') ?? '');
   await addCeoComment(delegationId, user, comment);
+  revalidateAndReturn(delegationId);
+}
+
+export async function nominateDelegationAlternateAction(
+  delegationId: string,
+  formData: FormData,
+): Promise<void> {
+  const user = requireUser(await getCurrentUser());
+  const alternateUserId = String(formData.get('alternateUserId') ?? '');
+  const comment = String(formData.get('comment') ?? '');
+  await nominateDelegationAlternate(delegationId, user, alternateUserId, comment);
+  revalidateAndReturn(delegationId);
+}
+
+export async function assignDelegationToManagerAction(
+  delegationId: string,
+  formData: FormData,
+): Promise<void> {
+  const user = requireUser(await getCurrentUser());
+  const managerId = String(formData.get('managerId') ?? '');
+  const comment = String(formData.get('comment') ?? '') || undefined;
+  await assignDelegationToManager(delegationId, user, managerId, comment);
   revalidateAndReturn(delegationId);
 }

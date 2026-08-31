@@ -1058,3 +1058,181 @@ were deleted afterward; confirmed via direct DB counts.
 
 - **Typecheck/lint/tests/production build all clean** — `npx tsc --noEmit`, `npx next lint`,
   `npm test` (34/34), `next build`, per the client's own closing requirement.
+
+## A32 — CEO Portal built out from four mockups: SEMC, Milestones, Weekly Reporting, Memos,
+## Financial Routing, Delegation extensions, Appointments (2026-08-27)
+
+The client's fourth spec supplied four CEO-facing mockups (Executive Overview, SEMC Executive
+Reporting, Approval Inbox, Delegations & Appointments) and asked for the CEO Portal to be
+completed — in effect, this closes almost every gap `docs/ceo-portal-requirements-review.md`
+(the review delivered immediately before this spec) identified. Scoped and built as one large but
+real, working increment rather than a set of static screens, per the client's own "do not deliver
+static screenshot-only pages" instruction.
+
+### Schema — two additive migrations, no edits to existing migrations
+
+`20260826145928_add_ceo_portal_semc_memos_finance_appointments` adds `Milestone`,
+`WeeklyManagerReport`, `DirectorSummary`, `ReportAccessGrant`, `Memo`, `FinancialApprovalRule`,
+`Appointment`, `AppointmentInvitee`, `WhatsAppApprovalToken`, `DelegationRecipient`, plus nullable/
+defaulted columns on `Deadline` (SEMC reporting-window fields), `Submission` (`ceoAgendaStatus*`,
+`semcEscalationRecommended*`), `Delegation` (`category`, `completionRequirement`), and `Evidence`
+(4 new attachment FKs). `20260826150526_add_workflow_transition_weekly_memo_fks` adds
+`WorkflowTransition.weeklyReportId`/`memoId` so both new workflowed entities get a real transition
+timeline, not just AuditEvent JSON. Every new/changed column is nullable or defaulted — no
+non-empty-table migration hand-editing was needed this pass.
+
+### SEMC — reuses the SMC pipeline and the Board module's models, does not duplicate either
+
+Per the client's explicit "Do not use SMC in newly implemented CEO functionality," all *new* SEMC
+screens are named/labelled SEMC throughout; underneath, they reuse the existing SMC `Submission`/
+`Meeting`(`meetingType: 'SMC'`)/`Deadline` pipeline (`#A1`/`#A9`/`#A18`/`#A27`) rather than a
+parallel data model — `src/lib/submissions/semcReview.ts` adds the CEO's 6 real pre-meeting actions
+(Accept for Agenda/Return/Request More Information/Preliminary Comment/Reject/Close) via a new,
+additive `Submission.ceoAgendaStatus` field, distinct from both `workflowStatus` (Secretariat's
+completeness check, unchanged) and `endorsedForBoard`/`boardOutcome` (the CEO's separate, later
+Board-vetting call, unchanged) — directly resolving the requirements review's SEMC-7 finding
+(those 6 verbs existed only partially, and were Secretariat-gated, not CEO-gated).
+
+The meeting-deliberation half (agenda/minutes/decisions/resolutions/actions) reuses the *models*
+`#A30` already generalized for the Board (`MeetingAgendaItem`/`MeetingMinutes`/`Resolution`/
+`Decision`/`ActionItem` — none of them hardcoded to `meetingType: BOARD` at the schema level) via a
+new, parallel thin service layer (`src/lib/semc/`: `meetings.ts`, `outcomes.ts`, `minutes.ts`) with
+SEMC's own role gates, rather than either parametrizing `src/lib/board/*` (which is tested, shipped,
+and hardcoded to `BOARD_SECRETARIAT_ROLES`/`meetingType: 'BOARD'` throughout — touching it risks the
+"do not replace working Board functionality" instruction) or duplicating the data model. `SEMC_OUTCOMES`
+(the client's 8-value vocabulary) is recorded on the same reused `Decision` model, a third distinct
+use of that table's free-text `decisionType` column (formal SMC/Board registry entries, then Board
+Member votes since `#A30`, now SEMC outcomes) — consistent with that model's own established
+"one row, several purposes" precedent. The client's two-step "SEMC recommends, CEO confirms" Board
+escalation is a new `Submission.semcEscalationRecommended` boolean (step 1, Secretariat) paired with
+the *existing* `endorsedForBoard` (step 2, CEO's confirmation, `#A27`'s `markEndorsedForBoard`
+reused unchanged) rather than two new fields.
+
+`SMC_MEMBER`/`SMC_SECRETARIAT` (seeded roles the requirements review found entirely unwired — zero
+call sites anywhere) now gate real access via `SEMC_ANY_ROLES`/`SEMC_SECRETARIAT_ROLES`
+(`src/lib/semc/roles.ts`) and their `ROLE_LANDING_PAGE` entries point at `/executive-dashboard/semc`
+instead of the `ComingSoonPage` stub.
+
+### Weekly Manager Reporting, Director Summaries, Forward-to-CEO — built from nothing
+
+`docs/ceo-portal-requirements-review.md` found this entire capability area unimplemented (the
+schema-only, never-wired `ActivityUpdate` model was left as-is, not repurposed — a live audit of a
+different reporting concept, and reviving it would have meant re-deriving a review workflow that
+was never actually exercised). New: `WeeklyManagerReport` (the client's 14-field shape, an 8-state
+table-driven workflow in `src/lib/reporting/weeklyReportWorkflow.ts`, Friday-5pm-PGT deadline
+enforcement via `src/lib/reporting/weeklyDeadline.ts` — pure `luxon` date math against
+`Pacific/Port_Moresby`, no stored `Deadline` row needed since the cadence is fixed by the client's
+own spec, not admin-configured); `DirectorSummary` (one row per department per reporting week,
+consolidated by the Director, reusing the same 4-value CEO-validation vocabulary as Milestones).
+
+**Object-level access** (`docs/ceo-portal-requirements-review.md`'s WMR-5/RBAC-3 finding: no
+per-object grant primitive existed anywhere) is now `ReportAccessGrant` — polymorphic
+(`entityType`/`entityId`/`entityVersion`), the same generalization pattern `AuditEvent`/`Comment`
+already established, so "Forward to CEO" works for `WeeklyManagerReport` today and any future
+entity without a schema change. The CEO's default views (`/executive-dashboard/weekly-management`,
+`listWeeklyComplianceSummary`) never expose a single raw report — only departmental aggregate
+counts, matching "The CEO must not automatically receive access to every detailed Manager report."
+
+### Memos & BAU Approvals, Financial Routing — built, with one real bug found and fixed live
+
+New `Memo` model, a 12-state workflow (`src/lib/memos/workflow.ts`), and `FinancialApprovalRule` (a
+DB-configurable table — seeded with the client's 3 initial tiers, read by
+`src/lib/finance/financialRouting.ts`, never a hard-coded threshold, per the client's explicit "Do
+not treat the K50,000 and K1 million values as permanently hard-coded policy"). The unified CEO
+Approval Inbox (`executive/approvalInbox.ts`, extended) now aggregates Memos/BAU, SEMC pre-meeting
+review, and Board Decision Papers into the same 4 categories the mockup's summary cards show.
+
+**A real bug, caught and fixed via live Playwright testing, not just typechecking**: the first
+version of `submitMemo()` tried a direct `SUBMITTED -> AWAITING_CEO_APPROVAL` transition for any
+memo without a financial value, but `MEMO_STATES`' transition graph only permits `SUBMITTED ->
+UNDER_REVIEW` — every plain BAU memo silently threw `InvalidMemoTransitionError` inside the create
+action and was left stranded at `SUBMITTED`, never reaching the CEO's inbox at all. Confirmed via
+the dev server's own request log (`InvalidMemoTransitionError: Invalid memo transition: SUBMITTED
+-> AWAITING_CEO_APPROVAL`) and a direct DB check. Fixed by chaining the transition through
+`UNDER_REVIEW` (both hops now appear on the memo's `WorkflowTransition` timeline); a regression test
+(`tests/unit/memos/memos.test.ts`) asserts a plain BAU memo reaches `AWAITING_CEO_APPROVAL` after
+submit — this test would have failed against the original code.
+
+**CEO Office (Executive Officer/PA)** is one new role code, `CEO_OFFICE` — the client's spec gives
+EO and PA an identical permission profile (organise/summarise/schedule, never approve/reject/sign),
+so the individual's actual title is `User.jobTitle` (already a free-text field), not a second role
+code, mirroring the `#A16` "don't duplicate for a display difference" precedent. `delegateMemoReview()`
+grants a CEO Office user visibility + comment rights on one memo — deliberately review-only; this
+pass does **not** build a mechanism for a formal delegation to actually grant approval authority
+(a real authority-escalation feature, out of scope for this increment) — every CEO-decision action
+(`approveMemo`/`rejectMemo`/etc.) still hard-gates on `CEO_ROLES` regardless of any delegation, and a
+test (`memos.test.ts`) asserts this directly.
+
+### Delegation extensions, Appointments, WhatsApp/Outlook-Teams provider scaffolding
+
+`Delegation` gained `category` (the client's 10-value list) and `completionRequirement`
+(Evidence/Report vs. Acknowledgement Only, now actually enforced in `submitDelegationForReview` —
+previously accepted an empty submission regardless). Multi-recipient addressing ("several Directors
+with one accountable lead," "a Manager, with the responsible Director automatically notified") is a
+new, additive `DelegationRecipient` join table — `responsibleDirectorId` stays the sole accountable
+lead and the entire existing, tested `#A29` state machine is untouched; additional recipients are
+notified/visible parties, not independent actors. `nominateDelegationAlternate`/
+`assignDelegationToManager` are new Director-side actions.
+
+**Appointments**: new `Appointment`/`AppointmentInvitee` models plus a `CalendarProvider` interface
+(`src/lib/providers/calendar/`) mirroring the established Microsoft-365-provider pattern — unlike
+`NotificationProvider`, scheduling itself is genuinely useful without a live tenant (the mock
+provider creates real `Appointment` rows), so only `createTeamsMeeting()` specifically throws
+without live Graph credentials, surfaced in the UI as "no live Teams link" rather than silently
+faking one.
+
+**WhatsApp approval** (`src/lib/notifications/whatsappApproval.ts`) is scaffolding only, by design:
+an expiring, single-use, version-pinned `WhatsAppApprovalToken` model and a `confirmWhatsAppApproval()`
+function that demonstrates (and is unit-testable against) the client's required security properties
+— exact reference, current document version, expiry, replay protection, exact-command-only matching
+(never treating "Okay"/"Looks good" as approval) — but nothing calls `issueWhatsAppApprovalToken()`
+from a live send yet, and there is deliberately no public webhook route that could accept an
+unauthenticated "APPROVE" from the internet. Building that inbound loop without real Business API
+credentials and verified phone-number mapping would be exactly the "looks like it worked" the
+client's spec prohibits — see `known-limitations.md`.
+
+### Sidebar, shared components, and what stayed untouched
+
+`CeoNav` (`PortalSidebar.tsx`) was rebuilt to the client's exact new required list (Executive
+Overview / Performance & Milestones / Director Summaries / Weekly Management / Executive Reporting
+[SEMC Reports / SEMC Deliberations / SEMC Decisions & Actions / Board Escalations] / Approval Inbox
+/ Memos & BAU Approvals / Delegations & Tasks / Appointments & Invitations / Notifications / Archive
+/ Sign Out), superseding `#A31`'s mockup-matched-but-now-outdated version — every item is a real,
+working link, none are disabled placeholders. A new `CeoOfficeNav` was added for the `CEO_OFFICE`
+role. New shared components: `TrafficLight` (colour+text+icon, reading `riskService.ts`'s newly
+generalized `computeStatusForPercent` — the same reusable calculation now backs Department Status,
+Milestones, and Weekly Management, not three separate implementations), `EmptyState`/`ErrorState`/
+`PermissionDeniedState`/`LoadingSkeleton`, `AuditTimeline` (generalizing the transition-history list
+first built inline for Delegations), `ConfirmSubmitButton`. A CSS-only (`peer-checked`, no client
+JS/state) mobile nav drawer was added to `PortalShell`/`PortalHeader`, additive to every role's
+shell, not just the CEO's.
+
+**Explicitly not touched**: `src/lib/board/*`, `src/lib/submissions/review.ts`'s existing exports,
+`src/lib/delegations/workflow.ts`'s state graph, `/delegations` (the original `#A29` register, still
+reachable directly), `/review-queue`, `/board/dashboard` — regression-checked live (Playwright) after
+this pass alongside every new screen.
+
+### Verification
+
+Live Playwright checks across all 4 new CEO screens plus every new subpage (18 page-load checks, all
+real content confirmed by title/body-length, zero console/page errors) and 3 real write-path flows
+(CEO creates a Milestone; a Manager submits a weekly report; a Director submits a Memo and the CEO
+approves it — the last of these is what surfaced the `submitMemo` bug above). **82 automated tests**
+(`npm test`), up from 34: the 4 original files unchanged, plus 6 new files — `milestones.test.ts`,
+`financialRouting.test.ts`, `memos.test.ts`, `weeklyReports.test.ts`, `semcReview.test.ts`,
+`delegationExtensions.test.ts` — covering every new permission gate, the deadline/late-submission
+logic, object-level visibility (Forward-to-CEO), and the two-step Board-escalation model.
+Typecheck/lint/production build all clean throughout. All test-created database rows (3 duplicate
+memos from earlier flaky-Playwright-script runs, 1 duplicate milestone, 4 weekly reports) were
+deleted afterward; confirmed via direct DB counts matching the post-seed baseline exactly.
+
+### What this pass does not build (see known-limitations.md for the full list)
+
+A formal mechanism for a CEO delegation to actually grant approval authority to CEO Office staff
+(review-only delegation is built; decision-authority delegation is not); a live WhatsApp inbound
+command loop or a live Outlook/Teams tenant connection (both are real, tested interfaces with
+exactly one method each throwing without credentials); a distinct "AWAITING_SUPPORTING_REVIEW"
+human actor for Memos (the state exists in the workflow graph, nothing currently stops there); the
+6-item UI/UX polish list from `docs/ceo-portal-requirements-review.md` §7 that remains partial
+(full sort/filter/pagination on every table, a comprehensive ARIA pass) beyond what was already
+addressed this pass (empty states, a mobile nav drawer, traffic lights with icon+text+colour).

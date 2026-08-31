@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createDelegationAction } from '@/app/delegations/actions';
+import { DELEGATION_CATEGORIES } from '@/lib/delegations/categories';
 import { CloseIcon, ArrowRightIcon, PlusIcon } from '@/components/icons';
 
 interface DirectorOption {
@@ -23,9 +24,11 @@ interface DepartmentOption {
 export function NewDelegationModal({
   directors,
   departments,
+  managers = [],
 }: {
   directors: DirectorOption[];
   departments: DepartmentOption[];
+  managers?: DirectorOption[];
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +91,20 @@ export function NewDelegationModal({
             </div>
 
             <form ref={formRef} onSubmit={handleSubmit} className="space-y-4 p-5">
+              <div>
+                <label htmlFor="category" className="text-sm font-medium text-nicta-teal-dark">
+                  Category
+                </label>
+                <select id="category" name="category" className="input mt-1" defaultValue="">
+                  <option value="">Select a category</option>
+                  {DELEGATION_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label htmlFor="title" className="text-sm font-medium text-nicta-teal-dark">
                   Title
@@ -212,6 +229,35 @@ export function NewDelegationModal({
                 />
               </div>
 
+              {managers.length > 0 && (
+                <div>
+                  <label
+                    htmlFor="additionalRecipientUserIds"
+                    className="text-sm font-medium text-nicta-teal-dark"
+                  >
+                    Additional recipients (Directors/Managers){' '}
+                    <span className="font-normal text-nicta-neutral-700">(optional)</span>
+                  </label>
+                  <select
+                    id="additionalRecipientUserIds"
+                    name="additionalRecipientUserIds"
+                    multiple
+                    className="input mt-1 h-24"
+                  >
+                    {[...directors, ...managers].map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                        {u.departmentName ? ` — ${u.departmentName}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[11px] text-nicta-neutral-700">
+                    Ctrl/Cmd-click to select several. The Director selected above stays the sole
+                    accountable lead — everyone here is notified and can view the delegation.
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label
                   htmlFor="requiredEvidence"
@@ -221,6 +267,25 @@ export function NewDelegationModal({
                   <span className="font-normal text-nicta-neutral-700">(optional)</span>
                 </label>
                 <input id="requiredEvidence" name="requiredEvidence" className="input mt-1" />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-nicta-teal-dark">Completion requires</label>
+                <div className="mt-1 flex gap-4 text-sm text-nicta-neutral-900">
+                  <label className="flex items-center gap-1.5">
+                    <input
+                      type="radio"
+                      name="completionRequirement"
+                      value="EVIDENCE"
+                      defaultChecked
+                    />
+                    Evidence or Report
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input type="radio" name="completionRequirement" value="ACKNOWLEDGEMENT_ONLY" />
+                    Acknowledgement Only
+                  </label>
+                </div>
               </div>
 
               <div>

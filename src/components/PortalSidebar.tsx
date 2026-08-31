@@ -42,6 +42,7 @@ export async function PortalSidebar({
   );
   const primaryHref = primaryRole ? ROLE_LANDING_PAGE[primaryRole] : '/submissions';
   const isCeo = user.roles.some((r) => r.roleCode === 'EXECUTIVE_VIEWER');
+  const isCeoOffice = !isCeo && user.roles.some((r) => r.roleCode === 'CEO_OFFICE');
   const isSecretariat = user.roles.some((r) => r.roleCode === 'REVIEWER_SECRETARIAT');
   const isDirector = user.roles.some((r) => r.roleCode === 'SUBMITTER');
   const isBoard = user.roles.some(
@@ -60,6 +61,7 @@ export async function PortalSidebar({
           'EXECUTIVE_VIEWER',
           'BOARD_MEMBER',
           'BOARD_SECRETARIAT',
+          'CEO_OFFICE',
           'SYSTEM_ADMIN',
         ].includes(r.roleCode),
       )?.roleName,
@@ -74,9 +76,17 @@ export async function PortalSidebar({
     <nav className="relative flex w-64 shrink-0 flex-col overflow-y-auto bg-nicta-teal-dark px-4 py-6">
       <SidebarPattern />
 
+      {isCeo && (
+        <p className="relative z-10 mb-4 px-3 text-xs font-bold uppercase tracking-wide text-white/90">
+          Executive Portal
+        </p>
+      )}
+
       <ul className="relative z-10 space-y-1">
         {isCeo ? (
           <CeoNav active={active} approvalCount={ceoApprovalCount} />
+        ) : isCeoOffice ? (
+          <CeoOfficeNav active={active} />
         ) : isSecretariat ? (
           <SecretariatNav active={active} />
         ) : isBoard ? (
@@ -86,19 +96,21 @@ export async function PortalSidebar({
         )}
       </ul>
 
-      <div className="relative z-10 mt-6 border-t border-white/10 pt-4">
-        <div className="flex items-center gap-3 px-1">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-sm font-semibold text-white">
-            {user.name.charAt(0)}
-          </span>
-          <div className="min-w-0 text-xs leading-tight">
-            <p className="truncate font-semibold text-white">{user.name}</p>
-            <p className="truncate text-white/60">
-              {[portalRoleName, department?.name].filter(Boolean).join(' ')}
-            </p>
+      {!isCeo && (
+        <div className="relative z-10 mt-6 border-t border-white/10 pt-4">
+          <div className="flex items-center gap-3 px-1">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-sm font-semibold text-white">
+              {user.name.charAt(0)}
+            </span>
+            <div className="min-w-0 text-xs leading-tight">
+              <p className="truncate font-semibold text-white">{user.name}</p>
+              <p className="truncate text-white/60">
+                {[portalRoleName, department?.name].filter(Boolean).join(' ')}
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </nav>
   );
 }
@@ -191,6 +203,33 @@ function DefaultNav({
       <li>
         <DisabledSidebarLink label="Managers Delegations" icon={PeopleIcon} />
       </li>
+      {/* #A32 — real destinations for two previously-stub areas: weekly-report review/Director
+          Summary submission (department-dashboard) and Memo creation, both gated to real Directors
+          (SUBMITTER) only. */}
+      <li>
+        {isDirector ? (
+          <SidebarLink
+            href="/department-dashboard"
+            label="Weekly Reports &amp; Milestones"
+            icon={ClockIcon}
+            active={active === 'department-dashboard'}
+          />
+        ) : (
+          <DisabledSidebarLink label="Weekly Reports &amp; Milestones" icon={ClockIcon} />
+        )}
+      </li>
+      <li>
+        {isDirector ? (
+          <SidebarLink
+            href="/executive-dashboard/memos"
+            label="Memos &amp; BAU Approvals"
+            icon={DocumentIcon}
+            active={active === 'executive-memos'}
+          />
+        ) : (
+          <DisabledSidebarLink label="Memos &amp; BAU Approvals" icon={DocumentIcon} />
+        )}
+      </li>
 
       <SectionLabel>Department Managers</SectionLabel>
       <li>
@@ -212,15 +251,20 @@ function DefaultNav({
 }
 
 // ---------------------------------------------------------------------------
-// CEO — #A31 rebuild to match the approved CEO Dashboard mockup exactly: one flat 11-item list
-// (no section headers, no "Soon" placeholders — every item here has a real destination), replacing
-// #A29's grouped, mostly-placeholder version. "SMC Submissions" and "Board Papers" reuse existing
-// pages exactly as #A29 already did; "Departments"/"Performance & KPIs"/"Approval Inbox"/
-// "CEO Comments" are new pages built this pass (#A31); "Delegated Tasks" reuses the existing
-// Delegation feature (#A29) rather than a new parallel model, matching the client's "do not
-// duplicate" instruction; "Archive" reuses the Board module's read-only archive (#A30), widened to
-// admit the CEO's oversight role.
+// CEO — #A32 rebuild to match the client's explicit required sidebar list verbatim (superseding
+// #A31's flat 11-item mockup-matched version, which predates the SEMC/Milestones/Weekly
+// Management/Memos/Appointments modules this pass builds): Executive Overview / Performance &
+// Milestones / Director Summaries / Weekly Management / Executive Reporting (SEMC Reports / SEMC
+// Deliberations / SEMC Decisions & Actions / Board Escalations) / Approval Inbox / Memos & BAU
+// Approvals / Delegations & Tasks / Appointments & Invitations / Notifications / Archive / Sign
+// Out. Every item has a real, working destination — no disabled placeholders, matching the
+// client's own mockups (which show no "Soon" items). "Board Papers"/"Departments"/"CEO Comments"
+// (real #A31 pages, not in the client's newly-named list) stay reachable via the Approval Inbox's
+// Board Matters rows and Performance & Milestones' Department Status panel respectively, rather
+// than being deleted — nothing built earlier was removed, per CLAUDE.md's "don't delete existing
+// features."
 function CeoNav({ active, approvalCount }: { active?: string; approvalCount: number }) {
+  const semcActive = active?.startsWith('semc-');
   return (
     <>
       <li>
@@ -233,36 +277,72 @@ function CeoNav({ active, approvalCount }: { active?: string; approvalCount: num
       </li>
       <li>
         <SidebarLink
-          href="/executive-dashboard/departments"
-          label="Departments"
-          icon={PeopleIcon}
-          active={active === 'executive-departments'}
-        />
-      </li>
-      <li>
-        <SidebarLink
           href="/executive-dashboard/performance"
-          label="Performance &amp; KPIs"
+          label="Performance &amp; Milestones"
           icon={ChartIcon}
           active={active === 'executive-performance'}
         />
       </li>
       <li>
         <SidebarLink
-          href="/executive-dashboard"
-          label="SMC Submissions"
-          icon={PaperPlaneIcon}
-          active={false}
+          href="/executive-dashboard/director-summaries"
+          label="Director Summaries"
+          icon={PersonCheckIcon}
+          active={active === 'executive-director-summaries'}
         />
       </li>
       <li>
         <SidebarLink
-          href="/board-papers"
-          label="Board Papers"
-          icon={ShieldCheckIcon}
-          active={active === 'board-papers'}
+          href="/executive-dashboard/weekly-management"
+          label="Weekly Management"
+          icon={ClockIcon}
+          active={active === 'executive-weekly-management'}
         />
       </li>
+
+      <SidebarExpandableGroup
+        label="Executive Reporting"
+        icon={<CalendarIcon className="h-4 w-4 shrink-0" />}
+        defaultOpen={Boolean(semcActive)}
+      >
+        <li>
+          <SidebarLink
+            href="/executive-dashboard/semc"
+            label="SEMC Reports"
+            icon={PaperPlaneIcon}
+            active={active === 'semc-reports'}
+            compact
+          />
+        </li>
+        <li>
+          <SidebarLink
+            href="/executive-dashboard/semc/meetings"
+            label="SEMC Deliberations"
+            icon={PeopleIcon}
+            active={active === 'semc-deliberations'}
+            compact
+          />
+        </li>
+        <li>
+          <SidebarLink
+            href="/executive-dashboard/semc/outcomes"
+            label="SEMC Decisions &amp; Actions"
+            icon={ShieldCheckIcon}
+            active={active === 'semc-outcomes'}
+            compact
+          />
+        </li>
+        <li>
+          <SidebarLink
+            href="/executive-dashboard/semc/escalations"
+            label="Board Escalations"
+            icon={AlertTriangleIcon}
+            active={active === 'semc-escalations'}
+            compact
+          />
+        </li>
+      </SidebarExpandableGroup>
+
       <li>
         <SidebarLink
           href="/executive-dashboard/approvals"
@@ -274,18 +354,26 @@ function CeoNav({ active, approvalCount }: { active?: string; approvalCount: num
       </li>
       <li>
         <SidebarLink
-          href="/executive-dashboard/comments"
-          label="CEO Comments"
-          icon={PersonCheckIcon}
-          active={active === 'executive-comments'}
+          href="/executive-dashboard/memos"
+          label="Memos &amp; BAU Approvals"
+          icon={DocumentIcon}
+          active={active === 'executive-memos'}
         />
       </li>
       <li>
         <SidebarLink
-          href="/delegations"
-          label="Delegated Tasks"
-          icon={ClockIcon}
+          href="/executive-dashboard/delegations"
+          label="Delegations &amp; Tasks"
+          icon={PeopleIcon}
           active={active === 'delegations'}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/executive-dashboard/appointments"
+          label="Appointments &amp; Invitations"
+          icon={CalendarIcon}
+          active={active === 'executive-appointments'}
         />
       </li>
       <li>
@@ -302,6 +390,44 @@ function CeoNav({ active, approvalCount }: { active?: string; approvalCount: num
           label="Archive"
           icon={ArchiveIcon}
           active={active === 'board-archive'}
+        />
+      </li>
+      <li>
+        <SignOutButton />
+      </li>
+    </>
+  );
+}
+
+// #A32 — CEO Office (Executive Officer / PA): a small, distinct nav matching their queue-support
+// scope only (organise/summarise/schedule — never approve/reject, see memos.ts's
+// delegateMemoReview comment). Not the full CEO nav — CEO Office staff have no Milestones/SEMC/
+// Delegations authority of their own.
+function CeoOfficeNav({ active }: { active?: string }) {
+  return (
+    <>
+      <li>
+        <SidebarLink
+          href="/executive-dashboard/office"
+          label="CEO Office Queue"
+          icon={InboxIcon}
+          active={!active || active === 'ceo-office'}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/executive-dashboard/appointments"
+          label="Appointments &amp; Invitations"
+          icon={CalendarIcon}
+          active={active === 'executive-appointments'}
+        />
+      </li>
+      <li>
+        <SidebarLink
+          href="/notifications"
+          label="Notifications"
+          icon={BellIcon}
+          active={active === 'notifications'}
         />
       </li>
       <li>
@@ -561,7 +687,7 @@ function SignOutButton() {
 // listCeoApprovalInbox/listDecisionsForSubmission service functions (those also re-check the
 // caller's role, redundant here since PortalSidebar already knows it).
 async function countCeoApprovalInbox(): Promise<number> {
-  const [smcCount, boardCount] = await Promise.all([
+  const [smcCount, boardCount, memoCount] = await Promise.all([
     prisma.submission.count({
       where: {
         submissionCategory: 'SMC',
@@ -570,8 +696,10 @@ async function countCeoApprovalInbox(): Promise<number> {
       },
     }),
     prisma.submission.count({ where: { submissionCategory: 'BOARD', boardOutcome: null } }),
+    // #A32 — Memos & BAU Approvals now feed the same badge count.
+    prisma.memo.count({ where: { status: 'AWAITING_CEO_APPROVAL' } }),
   ]);
-  return smcCount + boardCount;
+  return smcCount + boardCount + memoCount;
 }
 
 async function countBoardApprovalInbox(userId: string): Promise<number> {

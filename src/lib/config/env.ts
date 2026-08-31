@@ -32,6 +32,9 @@ const envSchema = z.object({
   WHATSAPP_BUSINESS_API_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
 
+  // #A32 — Outlook/Teams scheduling, reuses the same Graph app registration as SharePoint above.
+  CALENDAR_PROVIDER: z.enum(['mock', 'graph']).default('mock'),
+
   DEFAULT_TIMEZONE: z.string().default('Pacific/Port_Moresby'),
 });
 

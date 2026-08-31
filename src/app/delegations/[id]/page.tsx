@@ -22,6 +22,8 @@ import {
   requestDelegationExtensionAction,
   addDelegationUpdateAction,
   addCeoCommentAction,
+  nominateDelegationAlternateAction,
+  assignDelegationToManagerAction,
 } from '@/app/delegations/[id]/actions';
 
 export default async function DelegationDetailPage({ params }: { params: { id: string } }) {
@@ -36,6 +38,11 @@ export default async function DelegationDetailPage({ params }: { params: { id: s
     throw err;
   }
   if (!delegation) notFound();
+
+  const managers = await prisma.user.findMany({
+    where: { isActive: true, roles: { some: { role: { code: 'MANAGER' } } } },
+    orderBy: { name: 'asc' },
+  });
 
   const isCeo = user.roles.some(
     (r) => r.roleCode === 'EXECUTIVE_VIEWER' || r.roleCode === 'SYSTEM_ADMIN',
@@ -228,6 +235,40 @@ export default async function DelegationDetailPage({ params }: { params: { id: s
             required={false}
             placeholder="Optional comment"
           />
+
+          {/* #A32 — "Directors cannot silently decline CEO delegations. They may request
+              clarification or nominate an alternate with a reason." */}
+          <form action={bind(nominateDelegationAlternateAction)} className="rounded-md border border-nicta-neutral-200 bg-white p-4">
+            <label className="block text-sm font-medium">Nominate an Alternate</label>
+            <select name="alternateUserId" required className="input mt-2" defaultValue="">
+              <option value="" disabled>
+                Select an alternate Director
+              </option>
+              {managers.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+            <textarea name="comment" rows={2} required placeholder="Required — reason for the nomination" className="input mt-2" />
+            <SubmitButton tone="secondary">Nominate Alternate</SubmitButton>
+          </form>
+
+          <form action={bind(assignDelegationToManagerAction)} className="rounded-md border border-nicta-neutral-200 bg-white p-4">
+            <label className="block text-sm font-medium">Assign to a Manager</label>
+            <select name="managerId" required className="input mt-2" defaultValue="">
+              <option value="" disabled>
+                Select a Manager
+              </option>
+              {managers.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+            <textarea name="comment" rows={2} placeholder="Optional comment" className="input mt-2" />
+            <SubmitButton tone="secondary">Assign to Manager</SubmitButton>
+          </form>
         </ActionSection>
       )}
 
